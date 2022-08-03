@@ -1,0 +1,1231 @@
+---
+title: "Functional Connectivity for ACT-R WM"
+output:
+  html_document:
+    code_folding: hide
+    theme: yeti
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+  pdf_document:
+    toc: yes
+    toc_depth: '3'
+  word_document:
+    toc: yes
+    toc_depth: '3'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(dplyr)
+library(magrittr)
+library(ggplot2)
+library(ggthemes)
+library(ppcor)
+library(reshape2)
+#library(gglasso)
+library(glmnet)
+library(ggsci)
+library(viridis)
+library(ggExtra)
+#library(kableExtra)
+library(xtable)
+#library(data.table)
+library(sjPlot)
+
+```
+
+# Functional Connectivity Pipeline for the analysis of ACT-R WM
+
+This is a connectivity analysis pipeline for the  ACT-R-WM project. Given the individual-specific model parameters of the ACT-R WM Zero-back model, it performed a series of Lasso regressions on the functional connectivity data, identifying the functional connectivity features that best predict an individual value for the specific parameter.
+
+## Load the parameter data
+
+The individual model-fitted parameters for the 0-back task are here:
+
+```{r}
+dvs <- read_csv("fivePar.csv", 
+                col_types = cols(
+                  .default = col_double(),
+                  partID = col_character(),
+                  converged = col_character()
+))
+```
+
+There are a few participants who have performed the task in strange and unintented orders (against the HCP protocol):
+
+```{r}
+bto_parts = c("sub-103515", "sub-121618", "sub-126325", "sub-137936", "sub-150726", "sub-154936", "sub-157437", "sub-159239", "sub-172029", "sub-172332", "sub-992774")
+```
+
+
+These participants will be removed from all of the subsequent analyses:
+
+```{r}
+dvs <- dvs %>% 
+  filter(! partID %in% bto_parts)
+```
+
+## Load and transform the data for every subject
+
+First, let's load the Power 2011 region database. This will be used as an "atlas" throughout, to guide the development of the regions.
+
+```{r}
+power2011 <- read_csv("power_2011.csv", 
+                      col_types = cols(ROI=col_double(),
+                                       X = col_double(),
+                                       Y = col_double(),
+                                       Z = col_double(),
+                                       Network = col_double(),
+                                       Color = col_character(),
+                                       NetworkName = col_character())) %>%
+  dplyr::select(ROI, X, Y, Z, Network, Color, NetworkName)
+```
+
+
+Then, let's create the functional connectivity matrix for every single subject in the dataset. This step can be skipped by setting the `CREATE_FC` variable to `F`. 
+
+```{r}
+CREATE_FC = F
+
+if (CREATE_FC) {
+  for (sub in dir()[grep("sub-", dir())]) {
+    roidata <- NULL
+    for (roi in power2011$ROI) {
+      network <- power2011 %>%
+        filter(ROI == roi) %>%
+        dplyr::select(Network) %>%
+        as.numeric()
+      
+      network_name <- power2011 %>%
+        filter(ROI == roi) %>%
+        dplyr::select(NetworkName) %>%
+        as.character()
+      
+      file_name <- paste("region_", 
+                         sprintf("%03d", roi),  
+                         "_network_", 
+                         sprintf("%02d", max(0, network)), 
+                         ".txt",
+                         sep="")
+      #mat <- t(read.table(paste(sub, "func", file_name, sep="/")))
+      #pc1 <- prcomp(mat)  # PCA
+      #pc1 <- pc1$x[,1]    # first PC
+      mat <- colMeans(read.table(paste(sub, 
+                                       "ses-01/func",
+                                       "swadrfMRI_timeseries_results",
+                                       file_name, sep="/")))
+      pc1 <- mat
+      table <- tibble(subject = sub,
+                      scan = 1:1200,
+                      timeseries = pc1,
+                      roi = roi,
+                      network = network,
+                      network_name = network_name)
+      if (is.null(roidata)) {
+        roidata <- table
+      } else {
+        roidata %<>% bind_rows(table)
+      }
+      print(paste("sub", sub, "roi", roi))
+
+    }
+    # Pivot long data format into wide data 
+    wroidata <- roidata %>% pivot_wider(id_cols = scan, 
+                                        names_from = roi, 
+                                        values_from = timeseries)
+    X  <- as.matrix(wroidata[,2:265])
+    PR <- pcor(X)$estimate
+    R  <- cor(X)
+    
+    # Generate matrices:
+    
+    # The partial correlation matrix
+    long_pr <- melt(PR)
+    #pdf(paste(sub, "fc_pcorr.pdf", sep="/"))
+    # ggplot(long_pr, aes(x=Var1, y=Var2)) +
+    #   geom_raster(aes(fill=value)) +
+    #   scale_fill_gradient2(limits=c(-1,1), 
+    #                        low = "blue", 
+    #                        high = "red", 
+    #                        mid = "white") +
+    #   theme_pander() +
+    #   ggtitle(paste(sub, ": Functional Connectivity (Partial Correlations)", sep="")) +
+    #   xlab("ROIs") +
+    #   ylab("ROIs") 
+    # #dev.off()
+    # ggsave(paste(sub, "fc_pcorr.pdf", sep="/"))
+    write.table(PR, col.names = T, 
+                row.names = T, 
+                file = paste(sub, "PR.txt", sep="/"))
+    
+    # The standard correlation matrix
+    # long_r <- melt(R)
+    # #pdf(paste(sub, "fc_corr.pdf", sep="/"))
+    # ggplot(long_r, aes(x=Var1, y=Var2)) +
+    #   geom_raster(aes(fill=value)) +
+    #   scale_fill_gradient2(limits=c(-1,1), low = "blue", high = "red", mid = "white") +
+    #   theme_pander() +
+    #   ggtitle(paste(sub, ": Functional Connectivity, Standard Correlations)", sep="")) +
+    #   xlab("ROIs") +
+    #   ylab("ROIs") 
+    # #dev.off()
+    # ggsave(paste(sub, "fc_corr.pdf", sep="/"))
+    write.table(R, col.names = T, 
+                row.names = T, 
+                file = paste(sub, "R.txt", sep="/"))
+  }
+}
+```
+
+## Load the group-level data
+
+We now need to load the group level data. In essence, to corresponds to create a matrix of regressors _R_ in which every individual is a row and every column is a different ROI-to-ROI connection.
+
+### Setting Up Useful Functions
+
+We start by creating a empty `NOFLY` vector. This is a "No Fly" list of subjects who have specious connectivity data and will be excluded.
+
+```{r}
+NOFLY <- c()
+```
+
+Now, we create a vector of connection names. Given two regions located in position _i_ and _j_, each name is created as "$ID_i-ID_j$", with $ID_i$ and $ID_j$being the IDs (in Power's numbering scheme) of the regions bridged by this connection. This vector will be helpful if we want to remove all of the connections from a specific region from our regressor matrix $R$.  
+
+```{r}
+cols <- outer(power2011$ROI, power2011$ROI, function(x, y) {paste(x, y, sep="-")})
+cols %<>% as.vector
+```
+
+In addition, we are also going to need a function to give the same name to symmatric connections. Thus, the connection between _i_ and _j_ and the one between _j_ and _i_ will both be named $ID_i-ID_j$. There is no need to distinguish them because they will have the same value (since correlation values are symmetric).
+
+```{r}
+connection <- function(x, y) {
+  paste(min(x, y), max(x, y), sep="-")
+}
+
+vconnection <- Vectorize(connection)
+```
+
+Finally, we also need a function to give each connection a name that indicates the networks its regions belong to, i.e. "Subcortical - Default Mode". This requires a bit of a more hack-ish turn.
+
+```{r}
+Mode <- function(x, na.rm=F) {
+  if (na.rm) {
+    x = x[!is.na(x)]
+  }
+  ux <- unique(x)
+  return(ux[which.max(tabulate(match(x, ux)))])
+}
+
+reduced_power2011 <- power2011 %>% 
+  dplyr::select(Network, NetworkName) %>%
+  group_by(Network) %>%
+  summarize(Network = mean(Network), NetworkName = Mode(NetworkName))
+
+connection_name2 <- function(x, y) {
+  first <- min(x, y)
+  second <- max(x, y)
+  paste(reduced_power2011$NetworkName[reduced_power2011$Network == first],
+        reduced_power2011$NetworkName[reduced_power2011$Network == second],
+        sep="-")
+  
+}
+
+vconnection_name2 <- Vectorize(connection_name2)
+```
+
+And, with these functions in place, we can now create vectors of names that consistently refer to every column of our regressor matrix $R$.
+
+```{r}
+nets <- outer(power2011$Network, power2011$Network, vconnection)
+nets %<>% as.vector
+netnames <- outer(power2011$Network, power2011$Network, vconnection_name2)
+netnames %<>% as.vector
+```
+
+### Create the Regressor Matrix $R$.
+
+We can now create the huge regressor matrix $R$, which contains every connection in the Power 2011 parcellation in the columns and every subject as a row. To do so, we will load every $264 \times 264$ connectome matrix in each subject folder, reshape it into a $1 \times (264 \times 264)$ row vector, and insert the vector in the appropriate row of the $R$ matrix.  
+
+```{r}
+n <- length(grep("sub-", dir("data")))
+R <- matrix(data = rep(0, length(cols)*n), nrow =  n)  # Regressor matrix
+
+j <- 1
+
+for (sub in dir("data")[grep("sub-", dir("data"))]) {
+  M <- read.table(paste("data", sub, "PR.txt", sep="/"))
+  v <- as_vector(M)  # v spreads M column-wise. M is symmetrical, so it should not matter, but better not risk it
+  R[j,] <- v
+  if (length(v[is.na(v)]) > 0) {
+    print(paste("NA detected in sub", sub))
+    NOFLY %<>% c(sub)  # Addes sub to NOFLY list
+  }
+  
+  j <- j + 1
+}
+```
+
+Et voila, the give regressor matrix $R$ is created.
+
+#### (Optional) Save Individual Connectomes in Python-Friendly Format
+
+The following code (optional) will put the subject-specific connectomes into Python's NumPy-friendly format. 
+
+```{r}
+# Create python-compatible data
+PYTHON = F  # Global Flag
+
+if (PYTHON) {
+  for (sub in dir()[grep("sub-", dir())]) {
+    R1 <- read.table(paste(sub, "R.txt", sep="/"))
+    R2 <- read.table(paste(sub, "PR.txt", sep="/"))
+    
+    write.table(R1, paste(sub, "R_py.txt", sep="/"), 
+                sep = " ", row.names = F, col.names=F)
+    write.table(R2, paste(sub, "PR_py.txt", sep="/"), 
+                sep = " ", row.names = F, col.names=F)
+  }
+}
+```
+
+# Preparing the Data for Machine Learning
+
+To run the statistical learning Lasso model, we need to transform the data and reshape it in a way that is compatible with linear regressor. In linear models, the regressors are placed in matrices, with each regressor in a column and each participat in a row. Since we have 264x264 potential regressors per participant (the connectome), we need a matrix with ~ `r 264*264`  column
+
+Now, we actually do _not_ need all of them. First, we do not need the connectivity values between a region and itself (the diagonal of the connectome matrix). Second, the connectivity matrix is symmetrical, so connection $C_{i,j}$ is the same as $C_{j,i}$. So we can further reduce the regressor matrix to `r 264 * 263 / 2` columns.
+
+This matrix can be simplified further, for example, by excluding some networks or selecting only connections whose partial _r_ value is significant. To do all of these selections, we need to create different vectors that contain different pieces of information about each column in the matrix (the region, the network, the mean _r_, etc.). These vectors can be used for filtering out unwanted regressors.
+
+The next sections will set up such set of vectors.
+
+## Define the Networks
+
+Now, we can restrict the analysis only to a limited set of networks (and their cross-network connections) by modifying the `NOI` (Networks of Interest) variable. The variable will be used to create a second list, `COI` (Connections of interest), which will contain the possible list of network-to-network connections 
+
+```{r}
+NOI <- c(
+   "Uncertain", #
+   "Sensory/somatomotor Hand",
+   "Sensory/somatomotor Mouth", #
+   "Cingulo-opercular Task Control",
+   "Auditory", #
+   "Default mode",
+   "Memory retrieval?",
+   "Ventral attention",
+   "Visual",
+   "Fronto-parietal Task Control",
+  "Salience",
+  "Subcortical",
+  "Cerebellar", #
+   "Dorsal attention"
+)
+
+COI <- outer(NOI, 
+             NOI, 
+             function(x, y) {paste(x, y, sep="-")}) %>% as.vector()
+```
+
+
+Now, we need to remove some columns from the hyper-large X matrix, and define proper groupings for Lasso.
+
+```{r}
+# Here we simplify create a tibble which the X columns, and create a censor column to decide which ones to keep
+# If ROI1 = i and ROI2 = j, we keep column <i,j> IFF i < j.  This should keep the lower triangle.
+censor <- outer(power2011$ROI, 
+                power2011$ROI, 
+                function(x, y) {x < y}) %>% as.vector()
+
+order <- tibble(index = 1:length(nets), 
+                network = nets, 
+                network_names = netnames,
+                connection = cols, 
+                censor=censor)
+order %<>% arrange(network)
+
+
+I <- order %>%
+  filter(censor == TRUE) %>%
+  filter(network_names %in% COI) %>%
+  dplyr::select(index) 
+
+G <- order %>%
+  filter(censor == TRUE) %>%
+  filter(network_names %in% COI) %>%
+  dplyr::select(network) 
+# G is the real grouping factor for Lasso!
+
+# The real R:
+R <- R[,as_vector(I)]
+```
+
+## Load the dependent variable $Y$
+
+Now we need to load the dependent variable. In this case, it is the rate of forgetting $alpha$, which is stored as part of the participants' meta-data in `participats.tsv`. 
+
+Note that we could not measure $alpha$ for all participants, so we have to keep track of which rows in the $X$ regressor matrix we want to exclude from our Lasso analysis.
+
+# Machine Learning with Lasso
+
+In the following sections, we will go step-by-step on the process of defining a a statistical learning model to predict the values of various parameters from resting state data.
+
+## Neural Correlates of `:GA`
+
+We will starts with the goal activation paramater  $W_g$. First, let's visualize the histogram of the dependent variable we are trying to predict:
+
+```{r}
+Y <- dvs$ga
+
+dependent <- as_tibble(data.frame(ga=Y))
+
+ggplot(dependent, aes(x=ga)) +
+  geom_histogram(bins=10, col="white", alpha=0.5) +
+  #scale_fill_viridis(option = "plasma", discrete=T) +
+  geom_vline(xintercept = mean(dependent$ga),
+             linetype = "dashed") +
+  xlab(expression("Goal Activation"))+
+  ylab("Number of Participants") +
+  ggtitle("Distribution of Goal Activation") +
+  theme_pander() +
+  theme(legend.position = "none")
+
+```
+
+Now, let's remove the data that is not being modeled.
+
+```{r}
+subjects <- dir("data")[grep("sub-", dir("data"))]
+keep <-  subjects %in% dvs$partID
+X <- R[keep,]
+```
+
+
+### Defining the model
+
+Our second step is to define the learning model. Here, we will use Lasso. Lasso is a way to combine regression, validation, and feature selection into a single approach. 
+
+Lasso works like a normal regression, with the additional constraint that the 
+$\beta$ values need to minimize the residual sum of squares 
+(RSS) and, in addition, the quantity $- \lambda||\beta||_{1}$, where $||\beta||_{1}$ is the 
+first-order norm (the sum of absolute values of each regressor weight). For
+$\lambda = 0$, Lasso reduces to normal regression but, as the value of 
+$\lambda$ grows, more and more regressors are "pushed" to zero and removed from
+the pool. 
+
+We can now estimate model using `glmnet`.
+
+```{r}
+fit <- glmnet(y = Y,
+              x = X,
+              alpha=1,
+              standardize = T
+)
+```
+
+#### Selecting the optimal value of $\lambda$.
+
+The code abve has estimated the Lasso model for a variety of values of $\lambda$. We want to select the one value that maximizes generalizability, i.e. that reduces error in cross-validation. To do so, we will use the `cv.glmnet` function, which runs the same lasso model using a _k_-fold cross-validation procedure. Since we want to sue Leave-One-Out, we just need to set _k_ to the number of participants.
+
+```{r}
+fit.cv <- cv.glmnet(y = Y,
+                    x = X,
+                    alpha = 1,
+                    standardize = T,
+                    nfolds = length(Y)
+)
+```
+
+We can now see the results of the selection process. The following is the change in cross-validation error as a function of different values of $\lambda$. In an ideal Lasso result, the curve would be convex and will have a minimum corresponding to a value of $\lambda$ that is not big enough to kill all of the regressors.
+
+
+```{r}
+lasso_df <- tibble(lambda=fit.cv$lambda, 
+                   error=fit.cv$cvm, 
+                   sd=fit.cv$cvsd)
+
+ggplot(lasso_df, aes(x=lambda, y=error)) +
+  geom_line(aes(col=error), lwd=2) +
+  scale_color_viridis(option = "plasma") +
+  geom_ribbon(aes(ymin=error -sd, ymax=error + sd), alpha=0.2,fill="blue") +
+  xlab(expression(lambda)) +
+  ylab("Cross-Validation Error") +
+  ggtitle(expression(paste(bold("Cross Validation Error Across "), lambda, bold(" for the "),italic(W[g]), bold(" Lasso Regression")))) +
+  geom_vline(xintercept = lasso_df$lambda[lasso_df$error==min(lasso_df$error)], size=2, linetype='dashed') +
+  theme_pander() +
+  theme(legend.position="right")
+
+#ggsave("zb_ga_CVerror.png", dpi=300)
+```
+
+The following plot visualizes how the estimated beta values of different regressors change as function of $\lambda$.  It is a strange plot that is typical of Lasso studies: the _x_ axis represents the penalty term $\lambda ||\beta||_1$, which is the sum of all of the beta values (the L1 norm) that survive at a given value of $\lambda$. Each of the colored curves represents a regressor, and you can see their values increasing as the penalty term becomes smaller. The dashed line represent the L1 norm value for the minimum value of $\lambda$.
+
+```{r}
+plot(fit, sub="Beta Values for Connectivity")
+L1norm <- sum(abs(fit$beta[,which(fit$lambda==fit.cv$lambda.min)]))
+abline(v = L1norm, 
+       lwd = 2, 
+       lty = 2)
+```
+
+### Predicted vs. Observed
+
+Now, we can run the prediction model. We can do it in two ways. The simplest way is to fit the remaining regressors to the data and check the observed values against the predicted values. A nicer way to do the same analysis would be to do run the cross-validation algorithm again. However, with 100+ participants, the results are almost guaranteed to be the same.
+
+```{r}
+prediction <- predict(object = fit, 
+                      newx = X, 
+                      s = fit.cv$lambda.min, 
+                      type = "link")
+
+observed <-tibble(Subject = dvs$partID, 
+                  Param = Y, 
+                  Condition = "Observed")
+
+predicted <- tibble(Subject = dvs$partID, 
+                    Param = prediction, 
+                    Condition="Predicted")
+
+comparison <- as_tibble(rbind(observed, predicted))
+
+ggplot(comparison, aes(x = reorder(Subject, Param), 
+                       y = Param, 
+                       col = Condition)) +
+  geom_point(aes(col=Condition), 
+             size = 4, alpha = 0.8) +
+  geom_line(alpha = 0.5, lty = 0.2) +
+  scale_color_d3() +
+  xlab("Participant")+
+  ggtitle(expression(paste("Predicted vs. Observed Goal Activation ", italic(W)[g]))) +
+  annotate("text", x=20, y=0.35,
+           label=paste("r =", round(cor(Y, prediction), 3))) +
+  theme_pander() +
+  ylab(expression(paste("Goal Activation ", italic(W)[g]))) +
+  theme(axis.text.x = element_text(angle=90, hjust=1, size = 5)) +
+  theme(legend.position="bottom")
+```
+
+A more canonical Predicted vs. Observed scatterplot, the way John Palmer would have liked it:
+
+```{r, fig.width=5, fig.height=5}
+wcomparison <- comparison %>%
+  pivot_wider(id_cols = c("Subject"), 
+              names_from = c("Condition"), 
+              values_from = c("Param"))
+
+parCorr = cor.test(wcomparison$Observed,wcomparison$Predicted)
+
+parCorrVal = round(as.numeric(parCorr$estimate),2)
+parCorrPval = round(as.numeric(parCorr$p.value),2)
+
+if (parCorr$p.value >= 0.05) {
+  annoText = paste('r = ',parCorrVal,'\np = ',parCorrPval)
+} else if (parCorr$p.value < 0.05 & parCorr$p.value >= 0.01) {
+  annoText = paste('r = ',parCorrVal,'\np < 0.05')
+} else if (parCorr$p.value < 0.01 & parCorr$p.value >= 0.001) {
+  annoText = paste('r = ',parCorrVal,'\np < 0.01')
+} else {
+  annoText = paste('r = ',parCorrVal,'\np < 0.001')
+}
+
+p <- ggplot(wcomparison, aes(y = Predicted, 
+                             x = Observed, col = (Predicted - Observed)^2)) +
+  geom_abline(intercept = 0, slope = 1, 
+              col="red",
+              linetype="dashed") +
+  geom_point(size = 4, alpha = 0.6) +
+  scale_color_viridis("Error", option = "plasma", end = 0.8) +
+  theme_pander() +
+  theme(legend.position = "left") +
+  coord_fixed(xlim=c(0, 2), ylim=c(0, 2)) +
+  annotate("text",x=1.5,y=0.25,label=annoText) +
+  xlab(expression(paste("ACT-R model estimated decay rate ", italic(W[g])))) +
+  ylab(expression(paste("Lasso predicted decay rate ", italic(W[g]))))
+  #ggtitle(expression(paste("Predicted vs. Observed ", italic(W))))
+  
+# ggMarginal(p, 
+#            fill = "blue", alpha = 0.5,
+#            type = "density",  
+#            col = "blue",
+#            margins = "both")
+
+p
+
+#ggsave("zb_ga_predVest_scatter.png", dpi=300)
+
+```
+
+### Saving the Predictive Connectome
+
+Finally, we want to save the list of connections that survive the Lasso with $\beta \neq 0$ onto a `.csv` file, so we can re-use it and load it on in Python as well. 
+
+```{r}
+betas <- fit$beta[, which(fit$lambda==fit.cv$lambda.min)]
+conn_betas <- as_tibble(data.frame(index=I$index, Beta=betas))
+connectome <- order %>%
+   filter(index %in% I$index) %>%
+   inner_join(conn_betas) %>%
+   filter(Beta != 0)
+
+write_csv(connectome, file="ga_0b.csv")
+save(fit, fit.cv, X, Y, order, I, G, file="ga_0b.RData")
+```
+
+### Determining the number of brain regions and networks considered by the Lasso regression
+
+From the list of connections that survived the Lasso, we want to determine the number of unique brain regions that are included in the connections, and the number of networks that those regions belong to.
+
+```{r}
+minLambda = fit.cv$lambda.min
+numIncBetas = nrow(connectome)
+numTotBetas = nrow(conn_betas)
+pcntIncBetas = numIncBetas/numTotBetas
+
+uniqueRegions = unique(unlist(strsplit(connectome$connection,split='-')))
+numRegions = length(uniqueRegions)
+
+uniqueNetworks = unique(power2011$NetworkName[power2011$ROI %in% uniqueRegions])
+numNetworks = length(uniqueNetworks)
+```
+
+### Making a table of the Lasso results
+
+```{r}
+testDF = data.frame(Connection=connectome$network_names,
+                    Beta=connectome$Beta)
+
+#order dataframe by absolute value of Beta
+testDF = testDF[order(abs(testDF$Beta),decreasing=TRUE),]
+
+#split df in half because it's long
+firstHalfEnd = ceiling(nrow(testDF)/2)
+secondHalfStart = firstHalfEnd+1
+
+fhDF = testDF[1:firstHalfEnd,]
+shDF = testDF[secondHalfStart:nrow(testDF),]
+
+#tab_df(fhDF,file='Z:\\gp\\ACTR-WM\\dissertation\\figures\\tables\\LassoBetas\\zb_ga\\firstHalf.html')
+#tab_df(shDF,file='Z:\\gp\\ACTR-WM\\dissertation\\figures\\tables\\LassoBetas\\zb_ga\\secondHalf.html')
+
+#tab_dfs(list(fhDF,shDF))
+```
+
+## Neural Correlates of `:BLL`
+
+We can repeat the process for `:BLL`, the decay rate $d$.
+
+```{r}
+Y <- dvs$bll
+
+subjects <- dir("data")[grep("sub-", dir("data"))]
+keep <-  subjects %in% dvs$partID
+X <- R[keep,]
+
+dependent <- as_tibble(data.frame(bll=Y))
+
+ggplot(dependent, aes(x=bll)) +
+  geom_histogram(bins=10, col="white", alpha=0.5) +
+  geom_vline(xintercept = mean(dependent$bll),
+             linetype="dashed") +
+  xlab(expression("Decay Rate"))+
+  ylab("Number of Participants") +
+  ggtitle("Distribution of Decay Rates") +
+  theme_pander() +
+  theme(legend.position = "none")
+```
+
+
+### Defining the model
+
+The model definition is the same.
+
+```{r}
+fit <- glmnet(y = Y,
+              x = X,
+              alpha=1,
+              standardize = T
+)
+```
+
+And the cross selection of the optimal $\lambda$ follows the same rules: 
+
+```{r}
+fit.cv <- cv.glmnet(y = Y,
+                    x = X,
+                    alpha = 1,
+                    standardize = T,
+                    nfolds = length(Y)
+)
+```
+
+
+As before, we visualize the $\lambda$-profile:
+
+```{r}
+lasso_df <- as_tibble(data.frame(lambda=fit.cv$lambda, error=fit.cv$cvm, sd=fit.cv$cvsd))
+
+ggplot(lasso_df, aes(x=lambda, y=error)) +
+  geom_line(aes(col=error), lwd=2) +
+  scale_color_viridis(option = "plasma") +
+  geom_ribbon(aes(ymin=error -sd, ymax=error + sd), alpha=0.2,fill="blue") +
+  xlab(expression(lambda)) +
+  ylab("Cross-Validation Error") +
+  ggtitle(expression(paste(bold("Cross Validation Error Across "), lambda))) +
+  geom_vline(xintercept = lasso_df$lambda[lasso_df$error==min(lasso_df$error)]) +
+  theme_pander() +
+  theme(legend.position="right")
+```
+
+And the $\beta$ weights as a function of the L1 norm:
+
+```{r}
+plot(fit, sub="Beta Values for Connectivity")
+L1norm <- sum(abs(fit$beta[,which(fit$lambda==fit.cv$lambda.min)]))
+abline(v=L1norm, lwd=2, lty=2)
+```
+
+
+### Predicted vs. Observed
+
+We can now visualize the quality of our predictions
+
+```{r}
+prediction <- predict(object = fit, 
+                      newx = X, 
+                      s = fit.cv$lambda.min, 
+                      type = "link")
+
+observed <-tibble(Subject = dvs$partID, 
+                  Param = Y, 
+                  Condition = "Observed")
+
+predicted <- tibble(Subject = dvs$partID, 
+                    Param = prediction, 
+                    Condition = "Predicted")
+
+comparison <- as_tibble(rbind(observed, predicted))
+
+ggplot(comparison, aes(x=reorder(Subject, Param), y=Param, col=Condition)) +
+  geom_point(aes(col=Condition), size=4, alpha=0.8) +
+  geom_line(alpha=0.5, lty=0.2) +
+  scale_color_d3() +
+  xlab("Participant")+
+  ggtitle(expression(paste("Predicted vs. Observed Decay Rate ", italic(d)))) +
+  annotate("text", x = 20, y = 0.35,
+           label=paste("r =", round(cor(Y, prediction), 3))) +
+  theme_pander() +
+  ylab(expression(paste("Decay Rate ", italic(d)))) +
+  theme(axis.text.x = element_text(angle=90, hjust=1, size = 6)) +
+  theme(legend.position="bottom")
+```
+
+A more canonical Predicted vs. Observed scatterplot:
+
+```{r, fig.width=5, fig.height=5}
+wcomparison <- comparison %>%
+  pivot_wider(id_cols = c("Subject"), 
+              names_from=c("Condition"), 
+              values_from=c("Param"))
+
+p <- ggplot(wcomparison, aes(y=Predicted, x=Observed, col=(Predicted-Observed)^2)) +
+  geom_abline(intercept = 0, slope = 1, 
+              col="red",
+              linetype="dashed") +
+  geom_point(size=4, alpha=0.6) +
+  scale_color_viridis("Error", option="plasma", end=0.8) +
+  theme_pander() +
+  theme(legend.position = "left") +
+  coord_fixed(xlim=c(0.2, 0.8), ylim=c(0.2, 0.8)) +
+  xlab(expression(paste("Observed Decay Rate ", italic(d)))) +
+  ylab(expression(paste("Predicted Decay Rate ", italic(d)))) +
+  ggtitle(expression(paste("Predicted vs. Observed ", italic(d)))) 
+  
+ggMarginal(p, 
+           fill="blue", alpha=0.5,
+           type="density", #bins=13, 
+           col="blue",
+           margins = "both")
+
+```
+
+### Plotting Connectome
+
+And, as before, we saved the information about the predictive connectivity in a text file.
+
+```{r}
+betas <- fit$beta[, which(fit$lambda==fit.cv$lambda.min)]
+conn_betas <- tibble(index=I$index, Beta=betas)
+connectome <- order %>%
+   filter(index %in% I$index) %>%
+   inner_join(conn_betas) %>%
+   filter(Beta != 0)
+
+write_csv(connectome, file="bll_0b.csv")
+save(fit, fit.cv, X, Y, order, I, G, file="bll_0b.RData")
+```
+
+## Neural Correlates of `:IA`
+
+We can repeat the process for `:IA`, the imaginal activation $W_i$.
+
+```{r}
+Y <- dvs$ia
+
+subjects <- dir("data")[grep("sub-", dir("data"))]
+keep <-  subjects %in% dvs$partID
+X <- R[keep,]
+
+dependent <- tibble(ia=Y)
+
+ggplot(dependent, aes(x=ia)) +
+  geom_histogram(bins=10, col="white", alpha=0.5) +
+  geom_vline(xintercept = mean(dependent$ia),
+             linetype="dashed") +
+  xlab(expression("Imaginal Activation"))+
+  ylab("Number of Participants") +
+  ggtitle("Distribution of Imaginal Activations") +
+  theme_pander() +
+  theme(legend.position = "none")
+```
+
+
+### Defining the model
+
+The model definition is the same.
+
+```{r}
+fit <- glmnet(y = Y,
+              x = X,
+              alpha = 1,
+              standardize = T
+)
+```
+
+And the cross selection of the optimal $\lambda$ follows the same rules: 
+
+```{r}
+fit.cv <- cv.glmnet(y = Y,
+                    x = X,
+                    alpha = 1,
+                    standardize = T,
+                    nfolds = length(Y)
+)
+```
+
+
+As before, we visualize the $\lambda$-profile:
+
+```{r}
+lasso_df <- as_tibble(data.frame(lambda=fit.cv$lambda, error=fit.cv$cvm, sd=fit.cv$cvsd))
+
+ggplot(lasso_df, aes(x=lambda, y=error)) +
+  geom_line(aes(col=error), lwd=2) +
+  scale_color_viridis(option = "plasma") +
+  geom_ribbon(aes(ymin=error -sd, ymax=error + sd), alpha=0.2,fill="blue") +
+  xlab(expression(lambda)) +
+  ylab("Cross-Validation Error") +
+  ggtitle(expression(paste(bold("Cross Validation Error Across "), lambda))) +
+  geom_vline(xintercept = lasso_df$lambda[lasso_df$error==min(lasso_df$error)]) +
+  theme_pander() +
+  theme(legend.position="right")
+```
+
+And the $\beta$ weights as a function of the L1 norm:
+
+```{r}
+plot(fit, sub="Beta Values for Connectivity")
+L1norm <- sum(abs(fit$beta[,which(fit$lambda==fit.cv$lambda.min)]))
+abline(v=L1norm, lwd=2, lty=2)
+```
+
+
+### Predicted vs. Observed
+
+We can now visualize the quality of our predictions
+
+```{r}
+prediction <- predict(object = fit, 
+                      newx = X, 
+                      s = fit.cv$lambda.min, 
+                      type = "link")
+
+observed <-tibble(Subject = dvs$partID, 
+                  Param = Y, 
+                  Condition = "Observed")
+
+predicted <- tibble(Subject = dvs$partID, 
+                    Param = prediction, 
+                    Condition = "Predicted")
+
+comparison <- as_tibble(rbind(observed, predicted))
+
+ggplot(comparison, aes(x=reorder(Subject, Param), y=Param, col=Condition)) +
+  geom_point(aes(col=Condition), size=4, alpha=0.8) +
+  geom_line(alpha=0.5, lty=0.2) +
+  scale_color_d3() +
+  xlab("Participant")+
+  ggtitle(expression(paste("Predicted vs. Observed Imaginal Activation ", italic(W)[i]))) +
+  annotate("text", x = 20, y = 0.35,
+           label=paste("r =", round(cor(Y, prediction), 3))) +
+  theme_pander() +
+  ylab(expression(paste("Imaginal Activation ", italic(W)[i]))) +
+  theme(axis.text.x = element_text(angle=90, hjust=1, size = 6)) +
+  theme(legend.position="bottom")
+```
+
+A more canonical Predicted vs. Observed scatterplot:
+
+```{r, fig.width=5, fig.height=5}
+wcomparison <- comparison %>%
+  pivot_wider(id_cols = c("Subject"), 
+              names_from=c("Condition"), 
+              values_from=c("Param"))
+
+p <- ggplot(wcomparison, aes(y=Predicted, x=Observed, col=(Predicted-Observed)^2)) +
+  geom_abline(intercept = 0, slope = 1, 
+              col="red",
+              linetype="dashed") +
+  geom_point(size=4, alpha=0.6) +
+  scale_color_viridis("Error", option="plasma", end=0.8) +
+  theme_pander() +
+  theme(legend.position = "left") +
+  coord_fixed(xlim=c(0.2, 0.8), ylim=c(0.2, 0.8)) +
+  xlab(expression(paste("Observed ", italic(W)[i]))) +
+  ylab(expression(paste("Predicted  ", italic(W)[i]))) +
+  ggtitle(expression(paste("Predicted vs. Observed ", italic(W)[i]))) 
+  
+ggMarginal(p, 
+           fill="blue", alpha=0.5,
+           type="density", #bins=13, 
+           col="blue",
+           margins = "both")
+
+```
+
+### Plotting Connectome
+
+And, as before, we saved the information about the predictive connectivity in a text file.
+
+```{r}
+betas <- fit$beta[, which(fit$lambda==fit.cv$lambda.min)]
+conn_betas <- tibble(index=I$index, Beta=betas)
+connectome <- order %>%
+   filter(index %in% I$index) %>%
+   inner_join(conn_betas) %>%
+   filter(Beta != 0)
+
+write_csv(connectome, file="ia_0b.csv")
+save(fit, fit.cv, X, Y, order, I, G, file="ia_0b.RData")
+```
+
+
+## Neural Correlates of `:CSS`
+
+We can repeat the process for `:CSS`, the cue-target similarity $S_{c,t}$.
+
+```{r}
+Y <- dvs$css
+
+subjects <- dir("data")[grep("sub-", dir("data"))]
+keep <-  subjects %in% dvs$partID
+X <- R[keep,]
+
+dependent <- tibble(css = Y)
+
+ggplot(dependent, aes(x = css)) +
+  geom_histogram(bins=10, col="white", alpha=0.5) +
+  geom_vline(xintercept = mean(dependent$css),
+             linetype="dashed") +
+  xlab(expression("Cue-Target Similarity"))+
+  ylab("Number of Participants") +
+  ggtitle("Distribution of Similariies Between Cue and Target") +
+  theme_pander() +
+  theme(legend.position = "none")
+```
+
+
+### Defining the model
+
+The model definition is the same.
+
+```{r}
+fit <- glmnet(y = Y,
+              x = X,
+              alpha = 1,
+              standardize = T
+)
+```
+
+And the cross selection of the optimal $\lambda$ follows the same rules: 
+
+```{r}
+fit.cv <- cv.glmnet(y = Y,
+                    x = X,
+                    alpha = 1,
+                    standardize = T,
+                    nfolds = length(Y)
+)
+```
+
+
+As before, we visualize the $\lambda$-profile:
+
+```{r}
+lasso_df <- as_tibble(data.frame(lambda=fit.cv$lambda, error=fit.cv$cvm, sd=fit.cv$cvsd))
+
+ggplot(lasso_df, aes(x=lambda, y=error)) +
+  geom_line(aes(col=error), lwd=2) +
+  scale_color_viridis(option = "plasma") +
+  geom_ribbon(aes(ymin=error -sd, ymax=error + sd), alpha=0.2,fill="blue") +
+  xlab(expression(lambda)) +
+  ylab("Cross-Validation Error") +
+  ggtitle(expression(paste(bold("Cross Validation Error Across "), lambda))) +
+  geom_vline(xintercept = lasso_df$lambda[lasso_df$error==min(lasso_df$error)]) +
+  theme_pander() +
+  theme(legend.position="right")
+```
+
+And the $\beta$ weights as a function of the L1 norm:
+
+```{r}
+plot(fit, sub="Beta Values for Connectivity")
+L1norm <- sum(abs(fit$beta[,which(fit$lambda==fit.cv$lambda.min)]))
+abline(v=L1norm, lwd=2, lty=2)
+```
+
+
+### Predicted vs. Observed
+
+We can now visualize the quality of our predictions
+
+```{r}
+prediction <- predict(object = fit, 
+                      newx = X, 
+                      s = fit.cv$lambda.min, 
+                      type = "link")
+
+observed <-tibble(Subject = dvs$partID, 
+                  Param = Y, 
+                  Condition = "Observed")
+
+predicted <- tibble(Subject = dvs$partID, 
+                    Param = prediction, 
+                    Condition = "Predicted")
+
+comparison <- as_tibble(rbind(observed, predicted))
+
+ggplot(comparison, aes(x=reorder(Subject, Param), y=Param, col=Condition)) +
+  geom_point(aes(col=Condition), size=4, alpha=0.8) +
+  geom_line(alpha=0.5, lty=0.2) +
+  scale_color_d3() +
+  xlab("Participant")+
+  ggtitle(expression(paste("Predicted vs. Observed Similarity ", italic(W)[i]))) +
+  annotate("text", x = 20, y = 0.35,
+           label=paste("r =", round(cor(Y, prediction), 3))) +
+  theme_pander() +
+  ylab(expression(paste("Similarity ", italic(S)[c,t]))) +
+  theme(axis.text.x = element_text(angle=90, hjust=1, size = 6)) +
+  theme(legend.position="bottom")
+```
+
+A more canonical Predicted vs. Observed scatterplot:
+
+```{r, fig.width=5, fig.height=5}
+wcomparison <- comparison %>%
+  pivot_wider(id_cols = c("Subject"), 
+              names_from=c("Condition"), 
+              values_from=c("Param"))
+
+p <- ggplot(wcomparison, aes(y=Predicted, x=Observed, col=(Predicted-Observed)^2)) +
+  geom_abline(intercept = 0, slope = 1, 
+              col="red",
+              linetype="dashed") +
+  geom_point(size=4, alpha=0.6) +
+  scale_color_viridis("Error", option="plasma", end=0.8) +
+  theme_pander() +
+  theme(legend.position = "left") +
+  coord_fixed(xlim=c(0.2, 0.8), ylim=c(0.2, 0.8)) +
+  xlab(expression(paste("Observed ", italic(S)["c,t"]))) +
+  ylab(expression(paste("Predicted  ", italic(S)["c,t"]))) +
+  ggtitle(expression(paste("Predicted vs. Observed ", italic(S)["c,t"]))) 
+  
+ggMarginal(p, 
+           fill="blue", alpha=0.5,
+           type="density", #bins=13, 
+           col="blue",
+           margins = "both")
+
+```
+
+### Plotting Connectome
+
+And, as before, we saved the information about the predictive connectivity in a text file.
+
+```{r}
+betas <- fit$beta[, which(fit$lambda==fit.cv$lambda.min)]
+conn_betas <- tibble(index=I$index, Beta=betas)
+connectome <- order %>%
+   filter(index %in% I$index) %>%
+   inner_join(conn_betas) %>%
+   filter(Beta != 0)
+
+write_csv(connectome, file="css_0b.csv")
+save(fit, fit.cv, X, Y, order, I, G, file="css_0b.RData")
+```
+
+
+## Neural Correlates of `:LF`
+
+We can repeat the process for `:LF`, the latency factor $F$.
+
+```{r}
+Y <- dvs$lf
+
+subjects <- dir("data")[grep("sub-", dir("data"))]
+keep <-  subjects %in% dvs$partID
+X <- R[keep,]
+
+dependent <- tibble(lf = Y)
+
+ggplot(dependent, aes(x = lf)) +
+  geom_histogram(bins=10, col="white", alpha=0.5) +
+  geom_vline(xintercept = mean(dependent$lf),
+             linetype="dashed") +
+  xlab(expression("Cue-Target Similarity"))+
+  ylab("Number of Participants") +
+  ggtitle("Distribution of Similariies Between Cue and Target") +
+  theme_pander() +
+  theme(legend.position = "none")
+```
+
+
+### Defining the model
+
+The model definition is the same.
+
+```{r}
+fit <- glmnet(y = Y,
+              x = X,
+              alpha = 1,
+              standardize = T
+)
+```
+
+And the cross selection of the optimal $\lambda$ follows the same rules: 
+
+```{r}
+fit.cv <- cv.glmnet(y = Y,
+                    x = X,
+                    alpha = 1,
+                    standardize = T,
+                    nfolds = length(Y)
+)
+```
+
+
+As before, we visualize the $\lambda$-profile:
+
+```{r}
+lasso_df <- as_tibble(data.frame(lambda=fit.cv$lambda, error=fit.cv$cvm, sd=fit.cv$cvsd))
+
+ggplot(lasso_df, aes(x=lambda, y=error)) +
+  geom_line(aes(col=error), lwd=2) +
+  scale_color_viridis(option = "plasma") +
+  geom_ribbon(aes(ymin=error -sd, ymax=error + sd), 
+              alpha=0.2, fill="blue") +
+  xlab(expression(lambda)) +
+  ylab("Cross-Validation Error") +
+  ggtitle(expression(paste(bold("Cross Validation Error Across "), lambda))) +
+  geom_vline(xintercept = lasso_df$lambda[lasso_df$error==min(lasso_df$error)]) +
+  theme_pander() +
+  theme(legend.position="right")
+```
+
+And the $\beta$ weights as a function of the L1 norm:
+
+```{r}
+plot(fit, sub="Beta Values for Connectivity")
+L1norm <- sum(abs(fit$beta[,which(fit$lambda==fit.cv$lambda.min)]))
+abline(v=L1norm, lwd=2, lty=2)
+```
+
+
+### Predicted vs. Observed
+
+We can now visualize the quality of our predictions
+
+```{r}
+prediction <- predict(object = fit, 
+                      newx = X, 
+                      s = fit.cv$lambda.min, 
+                      type = "link")
+
+observed <-tibble(Subject = dvs$partID, 
+                  Param = Y, 
+                  Condition = "Observed")
+
+predicted <- tibble(Subject = dvs$partID, 
+                    Param = prediction, 
+                    Condition = "Predicted")
+
+comparison <- as_tibble(rbind(observed, predicted))
+
+ggplot(comparison, aes(x=reorder(Subject, Param), y=Param, col=Condition)) +
+  geom_point(aes(col=Condition), size=4, alpha=0.8) +
+  geom_line(alpha=0.5, lty=0.2) +
+  scale_color_d3() +
+  xlab("Participant")+
+  ggtitle(expression(paste("Predicted vs. Observed Latency Factor ", italic(F)))) +
+  annotate("text", x = 20, y = 0.35,
+           label=paste("r =", round(cor(Y, prediction), 3))) +
+  theme_pander() +
+  ylab(expression(paste("Latency Factor ", italic(F)))) +
+  theme(axis.text.x = element_text(angle=90, hjust=1, size = 6)) +
+  theme(legend.position="bottom")
+```
+
+A more canonical Predicted vs. Observed scatterplot:
+
+```{r, fig.width=5, fig.height=5}
+wcomparison <- comparison %>%
+  pivot_wider(id_cols = c("Subject"), 
+              names_from=c("Condition"), 
+              values_from=c("Param"))
+
+p <- ggplot(wcomparison, aes(y=Predicted, x=Observed, col=(Predicted-Observed)^2)) +
+  geom_abline(intercept = 0, slope = 1, 
+              col="red",
+              linetype="dashed") +
+  geom_point(size=4, alpha=0.6) +
+  scale_color_viridis("Error", option="plasma", end=0.8) +
+  theme_pander() +
+  theme(legend.position = "left") +
+  coord_fixed(xlim=c(0.2, 0.8), ylim=c(0.2, 0.8)) +
+  xlab(expression(paste("Observed ", italic(F)))) +
+  ylab(expression(paste("Predicted  ", italic(F)))) +
+  ggtitle(expression(paste("Predicted vs. Observed ", italic(S)["c,t"]))) 
+  
+ggMarginal(p, 
+           fill="blue", alpha=0.5,
+           type="density", #bins=13, 
+           col="blue",
+           margins = "both")
+
+```
+
+### Plotting Connectome
+
+And, as before, we saved the information about the predictive connectivity in a text file.
+
+```{r}
+betas <- fit$beta[, which(fit$lambda==fit.cv$lambda.min)]
+conn_betas <- tibble(index=I$index, Beta=betas)
+connectome <- order %>%
+   filter(index %in% I$index) %>%
+   inner_join(conn_betas) %>%
+   filter(Beta != 0)
+
+write_csv(connectome, file="lf_0b.csv")
+save(fit, fit.cv, X, Y, order, I, G, file="lf_0b.RData")
+```
