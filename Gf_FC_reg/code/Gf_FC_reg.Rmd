@@ -1,0 +1,208 @@
+---
+title: "Gf_restingState_lasso"
+output: html_document
+date: '2022-08-17'
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(dplyr)
+library(magrittr)
+library(ggplot2)
+library(ggthemes)
+library(ppcor)
+library(reshape2)
+#library(gglasso)
+library(glmnet)
+library(ggsci)
+library(viridis)
+library(ggExtra)
+#library(kableExtra)
+library(xtable)
+#library(data.table)
+library(sjPlot)
+```
+
+## Prediction of Individual Fluid Cognition Scores from Resting-State Neuroimaging Data
+
+This is an analysis pipeline for the prediction of individual measures of a composite fluid cognition score from resting-state functional connectivity data, using the Human Connectome Project dataset. Lasso regression is used to identify the FC features that best predict an individual's composite fluid cognition score.
+
+# Load the fluid cognition scores
+
+```{r}
+
+HCPbehDF = read.csv('/home/ausmanpa/gp/BCB-Modeling/Gf_FC_reg/data/HCP_beh.csv',header=TRUE)
+
+# currently only have data for a subset of HCP participants; would like to expand to full cohort
+current_participants = dir('/home/ausmanpa/gp/ACTR-WM/rsfMRI/data')
+
+HCP_Gf = HCPbehDF %>% dplyr::select(Subject,CogFluidComp_Unadj) %>% mutate(Subject=paste0('sub-',Subject)) %>% filter(Subject %in% current_participants)
+
+
+```
+
+
+# Plot the histogram and Q-Q plot of fluid cognition scores, test for normality
+
+```{r}
+ggplot(HCP_Gf, aes(x=CogFluidComp_Unadj)) +
+  geom_histogram(bins=30, col="white", alpha=0.5) +
+  geom_vline(xintercept = mean(HCP_Gf$CogFluidComp_Unadj),
+             linetype = "dashed") +
+  xlab(expression("Fluid Cognition Composite score"))+
+  ylab("Number of Participants") +
+  ggtitle("Distribution of Fluid Cognition Composite scores") +
+  theme_pander() +
+  theme(legend.position = "none")
+
+
+```
+
+
+```{r}
+
+# http://www.sthda.com/english/wiki/normality-test-in-r
+
+normTest = shapiro.test(HCP_Gf$CogFluidComp_Unadj)
+
+ggplot(HCP_Gf, aes(sample=CogFluidComp_Unadj)) +
+  stat_qq() +
+  stat_qq_line() +
+  annotate('text',x=2, y=90, label=paste0(normTest$method,'\nW = ',round(normTest$statistic,2),'\np = ',round(normTest$p.value,2)))
+
+```
+
+## Load and transform the resting-state data for each participant
+
+First, let's load the Power 2011 region database. This will be used as an "atlas" throughout, to guide the development of the regions.
+
+```{r}
+power2011 <- read_csv('/home/ausmanpa/gp/BCB-Modeling/Gf_FC_reg/data/power_2011.csv', 
+                      col_types = cols(ROI=col_double(),
+                                       X = col_double(),
+                                       Y = col_double(),
+                                       Z = col_double(),
+                                       Network = col_double(),
+                                       Color = col_character(),
+                                       NetworkName = col_character())) %>%
+  dplyr::select(ROI, X, Y, Z, Network, Color, NetworkName)
+```
+
+Now create the functional connectivity matrix for every single subject in the dataset. This step can be skipped by setting the `CREATE_FC` variable to `FALSE`.
+
+```{r}
+CREATE_FC = FALSE
+
+if (CREATE_FC) {
+  for (sub in dir('/home/ausmanpa/gp/ACTR-WM/rsfMRI/data')) {
+    roidata = NULL
+    for (roi in power2011$ROI) {
+      network = power2011 %>%
+        filter(ROI == roi) %>%
+        dplyr::select(Network) %>%
+        as.numeric()
+      
+      network_name = power2011 %>%
+        filter(ROI == roi) %>%
+        dplyr::select(NetworkName) %>%
+        as.character()
+      
+      file_name <- paste("region_", 
+                         sprintf("%03d", roi),  
+                         "_network_", 
+                         sprintf("%02d", max(0, network)), 
+                         ".txt",
+                         sep="")
+      
+      mat <- colMeans(read.table(paste(sub, 
+                                       "ses-01/func",
+                                       "swadrfMRI_timeseries_results",
+                                       file_name, sep="/")))
+      pc1 <- mat
+      table <- tibble(subject = sub,
+                      scan = 1:1200,
+                      timeseries = pc1,
+                      roi = roi,
+                      network = network,
+                      network_name = network_name)
+      if (is.null(roidata)) {
+        roidata <- table
+      } else {
+        roidata %<>% bind_rows(table)
+      }
+      print(paste("sub", sub, "roi", roi))
+
+    }
+    # Pivot long data format into wide data 
+    wroidata <- roidata %>% pivot_wider(id_cols = scan, 
+                                        names_from = roi, 
+                                        values_from = timeseries)
+    X  <- as.matrix(wroidata[,2:265])
+    PR <- pcor(X)$estimate
+    R  <- cor(X)
+    
+    # Generate matrices:
+    
+    # The partial correlation matrix
+    long_pr <- melt(PR)
+    #pdf(paste(sub, "fc_pcorr.pdf", sep="/"))
+    # ggplot(long_pr, aes(x=Var1, y=Var2)) +
+    #   geom_raster(aes(fill=value)) +
+    #   scale_fill_gradient2(limits=c(-1,1), 
+    #                        low = "blue", 
+    #                        high = "red", 
+    #                        mid = "white") +
+    #   theme_pander() +
+    #   ggtitle(paste(sub, ": Functional Connectivity (Partial Correlations)", sep="")) +
+    #   xlab("ROIs") +
+    #   ylab("ROIs") 
+    # #dev.off()
+    # ggsave(paste(sub, "fc_pcorr.pdf", sep="/"))
+    write.table(PR, col.names = T, 
+                row.names = T, 
+                file = paste(sub, "PR.txt", sep="/"))
+    
+    # The standard correlation matrix
+    # long_r <- melt(R)
+    # #pdf(paste(sub, "fc_corr.pdf", sep="/"))
+    # ggplot(long_r, aes(x=Var1, y=Var2)) +
+    #   geom_raster(aes(fill=value)) +
+    #   scale_fill_gradient2(limits=c(-1,1), low = "blue", high = "red", mid = "white") +
+    #   theme_pander() +
+    #   ggtitle(paste(sub, ": Functional Connectivity, Standard Correlations)", sep="")) +
+    #   xlab("ROIs") +
+    #   ylab("ROIs") 
+    # #dev.off()
+    # ggsave(paste(sub, "fc_corr.pdf", sep="/"))
+    write.table(R, col.names = T, 
+                row.names = T, 
+                file = paste(sub, "R.txt", sep="/"))
+  }
+}
+```
+
+# Perform Lasso regression of individual composite fluid cognition scores on individual resting-state functional connectivity measures
+
+```{r}
+fit <- glmnet(y = HCP_Gf$CogFluidComp_Unadj,
+              x = X,
+              alpha = 1,
+              standardize = T
+)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
