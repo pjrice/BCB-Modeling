@@ -24,11 +24,17 @@ library(xtable)
 library(sjPlot)
 ```
 
-## Prediction of Individual Fluid Cognition Scores from Resting-State Neuroimaging Data
+# Prediction of Individual Fluid Cognition Scores from Resting-State Neuroimaging Data
 
 This is an analysis pipeline for the prediction of individual measures of a composite fluid cognition score from resting-state functional connectivity data, using the Human Connectome Project dataset. Lasso regression is used to identify the FC features that best predict an individual's composite fluid cognition score.
 
-# Load the fluid cognition scores
+There are a few participants who have performed the task in strange and unintented orders (against the HCP protocol):
+
+```{r}
+bto_parts = c("sub-103515", "sub-121618", "sub-126325", "sub-137936", "sub-150726", "sub-154936", "sub-157437", "sub-159239", "sub-172029", "sub-172332", "sub-992774")
+```
+
+## Load the fluid cognition scores
 
 ```{r}
 
@@ -37,13 +43,15 @@ HCPbehDF = read.csv('/home/ausmanpa/gp/BCB-Modeling/Gf_FC_reg/data/HCP_beh.csv',
 # currently only have data for a subset of HCP participants; would like to expand to full cohort
 current_participants = dir('/home/ausmanpa/gp/ACTR-WM/rsfMRI/data')
 
+current_participants = setdiff(current_participants,bto_parts)
+
 HCP_Gf = HCPbehDF %>% dplyr::select(Subject,CogFluidComp_Unadj) %>% mutate(Subject=paste0('sub-',Subject)) %>% filter(Subject %in% current_participants)
 
 
 ```
 
 
-# Plot the histogram and Q-Q plot of fluid cognition scores, test for normality
+## Plot the histogram and Q-Q plot of fluid cognition scores, test for normality
 
 ```{r}
 ggplot(HCP_Gf, aes(x=CogFluidComp_Unadj)) +
@@ -75,10 +83,10 @@ ggplot(HCP_Gf, aes(sample=CogFluidComp_Unadj)) +
 
 ## Load and transform the resting-state data for each participant
 
-First, let's load the Power 2011 region database. This will be used as an "atlas" throughout, to guide the development of the regions.
+Load the Power 2011 region database. This will be used as an "atlas" throughout, for specification of the regions.
 
 ```{r}
-power2011 <- read_csv('/home/ausmanpa/gp/BCB-Modeling/Gf_FC_reg/data/power_2011.csv', 
+power2011 = read_csv('/home/ausmanpa/gp/BCB-Modeling/Gf_FC_reg/data/power_2011.csv', 
                       col_types = cols(ROI=col_double(),
                                        X = col_double(),
                                        Y = col_double(),
@@ -89,110 +97,496 @@ power2011 <- read_csv('/home/ausmanpa/gp/BCB-Modeling/Gf_FC_reg/data/power_2011.
   dplyr::select(ROI, X, Y, Z, Network, Color, NetworkName)
 ```
 
-Now create the functional connectivity matrix for every single subject in the dataset. This step can be skipped by setting the `CREATE_FC` variable to `FALSE`.
+
+### Setting Up Useful Functions
+
+There are some functions that will be necessary to keep track of the regions participating in the functional connectivity matrices that will be loaded and used as regressors. 
+
+Start by creating a empty `exclude` vector. This is a list of participants who have specious connectivity data and will be excluded.
 
 ```{r}
-CREATE_FC = FALSE
+exclude = c()
+```
 
-if (CREATE_FC) {
-  for (sub in dir('/home/ausmanpa/gp/ACTR-WM/rsfMRI/data')) {
-    roidata = NULL
-    for (roi in power2011$ROI) {
-      network = power2011 %>%
-        filter(ROI == roi) %>%
-        dplyr::select(Network) %>%
-        as.numeric()
-      
-      network_name = power2011 %>%
-        filter(ROI == roi) %>%
-        dplyr::select(NetworkName) %>%
-        as.character()
-      
-      file_name <- paste("region_", 
-                         sprintf("%03d", roi),  
-                         "_network_", 
-                         sprintf("%02d", max(0, network)), 
-                         ".txt",
-                         sep="")
-      
-      mat <- colMeans(read.table(paste(sub, 
-                                       "ses-01/func",
-                                       "swadrfMRI_timeseries_results",
-                                       file_name, sep="/")))
-      pc1 <- mat
-      table <- tibble(subject = sub,
-                      scan = 1:1200,
-                      timeseries = pc1,
-                      roi = roi,
-                      network = network,
-                      network_name = network_name)
-      if (is.null(roidata)) {
-        roidata <- table
-      } else {
-        roidata %<>% bind_rows(table)
-      }
-      print(paste("sub", sub, "roi", roi))
+Now, create a vector of connection names. Given two regions located in positions _i_ and _j_, each name is created as "$ID_i-ID_j$", with $ID_i$ and $ID_j$being the IDs (in Power's numbering scheme) of the regions participating in this connection. This vector will be helpful if we want to remove all of the connections from a specific region from our regressor matrix $R$.  
 
-    }
-    # Pivot long data format into wide data 
-    wroidata <- roidata %>% pivot_wider(id_cols = scan, 
-                                        names_from = roi, 
-                                        values_from = timeseries)
-    X  <- as.matrix(wroidata[,2:265])
-    PR <- pcor(X)$estimate
-    R  <- cor(X)
-    
-    # Generate matrices:
-    
-    # The partial correlation matrix
-    long_pr <- melt(PR)
-    #pdf(paste(sub, "fc_pcorr.pdf", sep="/"))
-    # ggplot(long_pr, aes(x=Var1, y=Var2)) +
-    #   geom_raster(aes(fill=value)) +
-    #   scale_fill_gradient2(limits=c(-1,1), 
-    #                        low = "blue", 
-    #                        high = "red", 
-    #                        mid = "white") +
-    #   theme_pander() +
-    #   ggtitle(paste(sub, ": Functional Connectivity (Partial Correlations)", sep="")) +
-    #   xlab("ROIs") +
-    #   ylab("ROIs") 
-    # #dev.off()
-    # ggsave(paste(sub, "fc_pcorr.pdf", sep="/"))
-    write.table(PR, col.names = T, 
-                row.names = T, 
-                file = paste(sub, "PR.txt", sep="/"))
-    
-    # The standard correlation matrix
-    # long_r <- melt(R)
-    # #pdf(paste(sub, "fc_corr.pdf", sep="/"))
-    # ggplot(long_r, aes(x=Var1, y=Var2)) +
-    #   geom_raster(aes(fill=value)) +
-    #   scale_fill_gradient2(limits=c(-1,1), low = "blue", high = "red", mid = "white") +
-    #   theme_pander() +
-    #   ggtitle(paste(sub, ": Functional Connectivity, Standard Correlations)", sep="")) +
-    #   xlab("ROIs") +
-    #   ylab("ROIs") 
-    # #dev.off()
-    # ggsave(paste(sub, "fc_corr.pdf", sep="/"))
-    write.table(R, col.names = T, 
-                row.names = T, 
-                file = paste(sub, "R.txt", sep="/"))
+```{r}
+cols = outer(power2011$ROI, power2011$ROI, function(x, y) {paste(x, y, sep="-")})
+cols %<>% as.vector
+```
+
+In addition, a function to give the same name to symmetric connections will also be needed. Thus, the connection between _i_ and _j_ and the one between _j_ and _i_ will both be named $ID_i-ID_j$. There is no need to distinguish them because they will have the same value (since correlation values are symmetric).
+
+```{r}
+connection <- function(x, y) {
+  paste(min(x, y), max(x, y), sep="-")
+}
+
+vconnection <- Vectorize(connection)
+```
+
+Finally, create a function to give each connection a name that indicates the networks its regions belong to, i.e. "Subcortical - Default Mode".
+
+```{r}
+Mode = function(x, na.rm=F) {
+  if (na.rm) {
+    x = x[!is.na(x)]
   }
+  ux = unique(x)
+  return(ux[which.max(tabulate(match(x, ux)))])
+}
+
+reduced_power2011 = power2011 %>% 
+  dplyr::select(Network, NetworkName) %>%
+  group_by(Network) %>%
+  summarize(Network = mean(Network), NetworkName = Mode(NetworkName))
+
+connection_name2 = function(x, y) {
+  first = min(x, y)
+  second = max(x, y)
+  paste(reduced_power2011$NetworkName[reduced_power2011$Network == first],
+        reduced_power2011$NetworkName[reduced_power2011$Network == second],
+        sep="-")
+  
+}
+
+vconnection_name2 = Vectorize(connection_name2)
+```
+
+Now, create vectors of names that consistently refer to every column of our regressor matrix $R$.
+
+```{r}
+nets = outer(power2011$Network, power2011$Network, vconnection)
+nets %<>% as.vector
+netnames = outer(power2011$Network, power2011$Network, vconnection_name2)
+netnames %<>% as.vector
+```
+
+
+Now create the regressor matrix $R$, which contains pairwise connections between each region in the Power 2011 parcellation in the columns, and every participant as a row. To do so, every participant's $264 \times 264$ functional connectivity matrix will be loaded, reshaped into a $1 \times (264 \times 264)$ row vector, and inserted in the appropriate row of the $R$ matrix.  
+
+```{r}
+n = nrow(HCP_Gf)
+R = matrix(data = rep(0, length(cols)*n), nrow =  n)  # Regressor matrix
+
+j = 1
+
+for (part in HCP_Gf$Subject) {
+  M = read.table(paste('/home/ausmanpa/gp/ACTR-WM/rsfMRI/data', part, "PR.txt", sep="/"))
+  v = as_vector(M)  # v spreads M column-wise. M is symmetrical, so it should not matter, but better not risk it
+  R[j,] = v
+  if (length(v[is.na(v)]) > 0) {
+    print(paste("NA detected in participant", part))
+    exclude %<>% c(part)  # Add participant to exclude list
+  }
+  
+  j = j + 1
 }
 ```
 
-# Perform Lasso regression of individual composite fluid cognition scores on individual resting-state functional connectivity measures
+# Preparing the Data for Lasso regression
+
+To run the Lasso model, the data needs to be transformed/reshaped in a way that is compatible with linear regression. In linear models, the regressors are placed in matrices, with each regressor in a column and each participant in a row. Since there are 264x264 potential regressors per participant (the set of functional connections between regions specified by the Power 2011 atlas), a matrix with ~ `r 264*264`  columns is needed.
+
+However, it is _not_ necessary to include all regressors. First, the connectivity values between a region and itself (the diagonal of the connectome matrix) are unnecessary. Second, the connectivity matrix is symmetrical, so connection $C_{i,j}$ is the same as $C_{j,i}$. So, the regressor matrix can be further reduced to `r 264 * 263 / 2` columns.
+
+This matrix can be simplified further, for example, by excluding some networks or selecting only connections whose partial _r_ value is significant. To do all of these selections, vectors that contain different aspects of information about each column in the matrix (the region, the network, the mean _r_, etc.) need to be created. These vectors can be used for filtering out unwanted regressors.
+
+The next sections will set up such a set of vectors.
+
+## Define the Networks
+
+The analysis can be restricted to a limited set of networks (and their cross-network connections) by modifying the `NOI` (networks of interest) variable. The variable will be used to create a second list, `COI` (connections of interest), which will contain the list of possible network-to-network connections, given the set of networks of interest. 
 
 ```{r}
-fit <- glmnet(y = HCP_Gf$CogFluidComp_Unadj,
-              x = X,
-              alpha = 1,
+NOI = c("Uncertain",
+         "Sensory/somatomotor Hand",
+         "Sensory/somatomotor Mouth",
+         "Cingulo-opercular Task Control",
+         "Auditory",
+         "Default mode",
+         "Memory retrieval?",
+         "Ventral attention",
+         "Visual",
+         "Fronto-parietal Task Control",
+         "Salience",
+         "Subcortical",
+         "Cerebellar",
+         "Dorsal attention")
+
+COI = outer(NOI, 
+             NOI, 
+             function(x, y) {paste(x, y, sep="-")}) %>% as.vector()
+```
+
+
+Using these guidelines, remove columns from the regressor matrix and define proper groupings for Lasso.
+
+```{r}
+# Here we create a tibble with the X columns, and create a censor column to decide which ones to keep
+# If ROI1 = i and ROI2 = j, we keep column <i,j> IFF i < j.  This should keep the lower triangle.
+censor = outer(power2011$ROI, 
+                power2011$ROI, 
+                function(x, y) {x < y}) %>% as.vector()
+
+order = tibble(index = 1:length(nets), 
+                network = nets, 
+                network_names = netnames,
+                connection = cols, 
+                censor=censor)
+order %<>% arrange(network)
+
+
+I = order %>%
+  filter(censor == TRUE) %>% # keep i,j connections and remove symmetric j,i connections
+  filter(network_names %in% COI) %>% # keep only the connections specified by the connections of interest
+  dplyr::select(index) 
+
+G = order %>%
+  filter(censor == TRUE) %>%
+  filter(network_names %in% COI) %>%
+  dplyr::select(network) 
+# G is the real grouping factor for Lasso!
+
+# The real R:
+R <- R[,as_vector(I)]
+```
+
+# Machine Learning with Lasso
+
+In the following sections, a statistical learning model will be defined to predict an individual's fluid cognition measure from their resting state functional connectivity data.
+
+### Defining the model
+
+Lasso regression will be used to define the model - Lasso is a way to combine regression, validation, and feature selection into a single approach. 
+
+Lasso works like a normal regression, with the additional constraint that the $\beta$ values need to minimize the residual sum of squares (RSS) and, in addition, the quantity $- \lambda||\beta||_{1}$, where $||\beta||_{1}$ is the first-order norm (the sum of absolute values of each regressor weight). For $\lambda = 0$, Lasso reduces to normal regression but, as the value of $\lambda$ grows, more and more regressors are "pushed" to zero and removed from the pool. 
+
+The model can now be estimated using `glmnet`.
+
+```{r}
+fit = glmnet(y = HCP_Gf$CogFluidComp_Unadj,
+              x = R,
+              alpha=1,
+              standardize = T
+)
+```
+
+The cross-validation of the optimal $\lambda$ follows the same rules: 
+
+```{r}
+# reports "Warning: Option grouped=FALSE enforced in cv.glmnet, since < 3 observations per fold"
+fit.cv = cv.glmnet(y = HCP_Gf$CogFluidComp_Unadj,
+                    x = R,
+                    alpha = 1,
+                    standardize = T,
+                    nfolds = length(HCP_Gf$CogFluidComp_Unadj)
+)
+```
+
+Visualize the resulting $\lambda$-profile:
+
+```{r}
+lasso_df = as_tibble(data.frame(lambda=fit.cv$lambda, error=fit.cv$cvm, sd=fit.cv$cvsd))
+
+ggplot(lasso_df, aes(x=lambda, y=error)) +
+  geom_line(aes(col=error), lwd=2) +
+  scale_color_viridis(option = "plasma") +
+  geom_ribbon(aes(ymin=error -sd, ymax=error + sd), 
+              alpha=0.2, fill="blue") +
+  xlab(expression(lambda)) +
+  ylab("Cross-Validation Error") +
+  ggtitle(expression(paste(bold("Cross Validation Error Across "), lambda))) +
+  geom_vline(xintercept = lasso_df$lambda[lasso_df$error==min(lasso_df$error)]) +
+  theme_pander() +
+  theme(legend.position="right")
+```
+
+Visualize the $\beta$ weights as a function of the L1 norm:
+
+```{r}
+plot(fit, sub="Beta Values for Connectivity")
+L1norm <- sum(abs(fit$beta[,which(fit$lambda==fit.cv$lambda.min)]))
+abline(v=L1norm, lwd=2, lty=2)
+```
+
+
+### Predicted vs. Observed
+
+Examine the quality of our predictions:
+
+```{r}
+prediction = predict(object = fit, 
+                      newx = R, 
+                      s = fit.cv$lambda.min, 
+                      type = 'link')
+
+observed = tibble(Participant = current_participants, 
+                  Param = HCP_Gf$CogFluidComp_Unadj, 
+                  Condition = 'Observed')
+
+predicted = tibble(Participant = current_participants, 
+                    Param = prediction, 
+                    Condition = 'Predicted')
+
+comparison = as_tibble(rbind(observed, predicted))
+
+ggplot(comparison, aes(x=reorder(Participant, Param), y=Param, col=Condition)) +
+  geom_point(aes(col=Condition), size=4, alpha=0.8) +
+  geom_line(alpha=0.5, lty=0.2) +
+  scale_color_d3() +
+  xlab('Participant')+
+  ggtitle('Predicted vs. Observed Fluid Cognition Measure') +
+  annotate('text', x = 20, y = 0.35,
+           label=paste('r =', round(cor(HCP_Gf$CogFluidComp_Unadj, prediction), 3))) +
+  theme_pander() +
+  ylab('Fluid Cognition Measure') +
+  theme(axis.text.x = element_text(angle=90, hjust=1, size = 6)) +
+  theme(legend.position='bottom')
+```
+
+A more canonical Predicted vs. Observed scatterplot:
+
+```{r, fig.width=5, fig.height=5}
+wcomparison = comparison %>%
+  pivot_wider(id_cols = c('Participant'), 
+              names_from=c('Condition'), 
+              values_from=c('Param'))
+
+p = ggplot(wcomparison, aes(y=Predicted, x=Observed, col=(Predicted-Observed)^2)) +
+  geom_abline(intercept = 0, slope = 1, 
+              col='red',
+              linetype='dashed') +
+  geom_point(size=4, alpha=0.6) +
+  scale_color_viridis('Error', option='plasma', end=0.8) +
+  theme_pander() +
+  theme(legend.position = 'left') +
+  coord_fixed(xlim=c(90, 145), ylim=c(90, 145)) +
+  xlab('Observed Fluid Cognition') +
+  ylab('Predicted  Fluid Cognition') +
+  ggtitle('Predicted vs. Observed Fluid Cognition Measure') 
+  
+ggMarginal(p, 
+           fill='blue', alpha=0.5,
+           type='density', #bins=13, 
+           col='blue',
+           margins = 'both')
+
+```
+
+
+It seems that the "bad trial order" participants are...really bad? This model has less predictive power than the original model in actr_wm_lasso_twoBack. The only difference I can find right now is the removal of the bto parts...so try that.
+
+Confirmed - removal of the bto participants drastically increases the model's predictive power, and the results are equal to the original model.
+
+
+# Better practices
+
+The above demonstrates that an individual's resting-state functional connectivity is predictive of their fluid intelligence measure. However, another good practice to employ is to ask whether or not the model is predictive of unobserved individuals. In order to test this, the analysis will be rerun, but this time, a subset of participants will be held out as the test set, while the remainder will be used as the training set for the model.
+
+First, subset the data into test and training sets.
+
+```{r}
+
+# select a subset of participants as the test set
+subsetPercent = 0.1
+numTestSet = round(nrow(HCP_Gf)*subsetPercent)
+
+testSetParts = sample(HCP_Gf$Subject,numTestSet,replace=FALSE)
+
+trainingDF = HCP_Gf %>% filter(! Subject %in% testSetParts)
+testDF = HCP_Gf %>% filter(Subject %in% testSetParts)
+
+trainingRegMat = R[! HCP_Gf$Subject %in% testSetParts,]
+testRegMat = R[HCP_Gf$Subject %in% testSetParts,]
+
+
+```
+
+Now fit the model using the training data.
+
+```{r}
+fit = glmnet(y = trainingDF$CogFluidComp_Unadj,
+              x = trainingRegMat,
+              alpha=1,
               standardize = T
 )
 ```
 
 
+Cross-validation of the optimal $\lambda$: 
+
+```{r}
+# reports "Warning: Option grouped=FALSE enforced in cv.glmnet, since < 3 observations per fold"
+fit.cv = cv.glmnet(y = trainingDF$CogFluidComp_Unadj,
+                    x = trainingRegMat,
+                    alpha = 1,
+                    standardize = T,
+                    nfolds = length(trainingDF$CogFluidComp_Unadj)
+)
+```
+
+Visualize the resulting $\lambda$-profile:
+
+```{r}
+lasso_df = as_tibble(data.frame(lambda=fit.cv$lambda, error=fit.cv$cvm, sd=fit.cv$cvsd))
+
+ggplot(lasso_df, aes(x=lambda, y=error)) +
+  geom_line(aes(col=error), lwd=2) +
+  scale_color_viridis(option = "plasma") +
+  geom_ribbon(aes(ymin=error -sd, ymax=error + sd), 
+              alpha=0.2, fill="blue") +
+  xlab(expression(lambda)) +
+  ylab("Cross-Validation Error") +
+  ggtitle(expression(paste(bold("Cross Validation Error Across "), lambda))) +
+  geom_vline(xintercept = lasso_df$lambda[lasso_df$error==min(lasso_df$error)]) +
+  theme_pander() +
+  theme(legend.position="right")
+```
+
+Visualize the $\beta$ weights as a function of the L1 norm:
+
+```{r}
+plot(fit, sub="Beta Values for Connectivity")
+L1norm <- sum(abs(fit$beta[,which(fit$lambda==fit.cv$lambda.min)]))
+abline(v=L1norm, lwd=2, lty=2)
+```
+
+Now, examine how well the model predicts unobserved individuals (the test set):
+
+```{r}
+prediction = predict(object = fit, 
+                      newx = testRegMat, 
+                      s = fit.cv$lambda.min, 
+                      type = 'link')
+
+observed = tibble(Participant = testDF$Subject, 
+                  Param = testDF$CogFluidComp_Unadj, 
+                  Condition = 'Observed')
+
+predicted = tibble(Participant = testDF$Subject, 
+                    Param = prediction, 
+                    Condition = 'Predicted')
+
+comparison = as_tibble(rbind(observed, predicted))
+
+ggplot(comparison, aes(x=reorder(Participant, Param), y=Param, col=Condition)) +
+  geom_point(aes(col=Condition), size=4, alpha=0.8) +
+  geom_line(alpha=0.5, lty=0.2) +
+  scale_color_d3() +
+  xlab('Participant')+
+  ggtitle('Predicted vs. Observed Fluid Cognition Measure') +
+  annotate('text', x = 10, y = 25,
+           label=paste('r =', round(cor(testDF$CogFluidComp_Unadj, prediction), 3))) +
+  theme_pander() +
+  ylab('Fluid Cognition Measure') +
+  theme(axis.text.x = element_text(angle=90, hjust=1, size = 6)) +
+  theme(legend.position='bottom')
+```
+
+A more canonical Predicted vs. Observed scatterplot:
+
+```{r, fig.width=5, fig.height=5}
+wcomparison = comparison %>%
+  pivot_wider(id_cols = c('Participant'), 
+              names_from=c('Condition'), 
+              values_from=c('Param'))
+
+p = ggplot(wcomparison, aes(y=Predicted, x=Observed, col=(Predicted-Observed)^2)) +
+  geom_abline(intercept = 0, slope = 1, 
+              col='red',
+              linetype='dashed') +
+  geom_point(size=4, alpha=0.6) +
+  scale_color_viridis('Error', option='plasma', end=0.8) +
+  theme_pander() +
+  theme(legend.position = 'left') +
+  coord_fixed(xlim=c(90, 145), ylim=c(90, 145)) +
+  xlab('Observed Fluid Cognition') +
+  ylab('Predicted  Fluid Cognition') +
+  ggtitle('Predicted vs. Observed Fluid Cognition Measure') 
+  
+ggMarginal(p, 
+           fill='blue', alpha=0.5,
+           type='density', #bins=13, 
+           col='blue',
+           margins = 'both')
+
+```
+
+
+
+When holding approximately 10% of the participants out as a test set, the model is moderately predictive, which is good. But, one thing to note is that these test participants were chosen randomly, and their presence in/out of the training data may affect the predictive power of the resulting model. Another approach is to run this procedure multiple times, and examine the distribution of residuals/correlations after the fact. This will take a while to run.
+
+```{r}
+
+runBootstrap = FALSE
+numRuns = 100
+subsetPercent = 0.1
+numTestSet = round(nrow(HCP_Gf)*subsetPercent)
+runCorrelations = c()
+runResiduals = c()
+
+if (runBootstrap) {
+  for (run in 1:numRuns) {
+  
+    message(paste0('Run number ',as.character(run),'...'))
+  
+    testSetParts = sample(HCP_Gf$Subject,numTestSet,replace=FALSE)
+    trainingDF = HCP_Gf %>% filter(! Subject %in% testSetParts)
+    testDF = HCP_Gf %>% filter(Subject %in% testSetParts)
+    trainingRegMat = R[! HCP_Gf$Subject %in% testSetParts,]
+    testRegMat = R[HCP_Gf$Subject %in% testSetParts,]
+  
+    fit = glmnet(y = trainingDF$CogFluidComp_Unadj,
+                 x = trainingRegMat,
+                 alpha=1,
+                 standardize = T)
+  
+    fit.cv = cv.glmnet(y = trainingDF$CogFluidComp_Unadj,
+                       x = trainingRegMat,
+                       alpha = 1,
+                       standardize = T,
+                       nfolds = length(trainingDF$CogFluidComp_Unadj))
+  
+    prediction = predict(object = fit,
+                         newx = testRegMat, 
+                         s = fit.cv$lambda.min, 
+                         type = 'link')
+  
+    # correlation and mean residual between predicted and observed
+    runCorrelations = c(runCorrelations,cor(testDF$CogFluidComp_Unadj, prediction))
+    runResiduals = c(runResiduals,mean((testDF$CogFluidComp_Unadj - prediction)))
+
+  }
+}
+
+```
+
+
+```{r}
+
+#bootstrapResults = data.frame(corr=runCorrelations,
+#                              resi=runResiduals)
+
+#write.csv(bootstrapResults,'/home/ausmanpa/gp/BCB-Modeling/Gf_FC_reg/data/bootstrapTestSetPred.csv',row.names=FALSE)
+
+bootstrapResults = read.csv('/home/ausmanpa/gp/BCB-Modeling/Gf_FC_reg/data/bootstrapTestSetPred.csv')
+
+ggplot(bootstrapResults,aes(x=corr)) +
+  geom_histogram()
+
+t.test(x=bootstrapResults$corr,
+       alternative="two.sided",
+       mu=0)
+
+ggplot(bootstrapResults,aes(x=resi)) +
+  geom_histogram()
+
+t.test(x=bootstrapResults$resi,
+       alternative="two.sided",
+       mu=0)
+
+```
 
 
 
