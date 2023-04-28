@@ -157,8 +157,23 @@ part = [1]*50 + [2]*50
 dv = [.3]*50 + [.7]*50
 dv = list(truncnorm.rvs(a=0, b=1, loc=0.3, scale=0.05, size=50)) + list(truncnorm.rvs(a=0, b=1, loc=0.7, scale=0.05, size=50))
 
-    
-tuning20 = abc_hierarchical_model(.2,dv)    
+partData = {"partID":part,
+            "dvSteady":[.3]*50 + [.7]*50,
+            "dv":dv
+    }
+
+tuning05 = abc_hierarchical_model(.05,dv)
+tuning10 = abc_hierarchical_model(.1,dv)
+tuning15 = abc_hierarchical_model(.15,dv)   
+tuning20 = abc_hierarchical_model(.2,dv)
+
+tuning05.to_csv('/home/ausmanpa/gp/BCB-Modeling/ABC BHM R Code/pyData/tuning05.csv')    
+tuning10.to_csv('/home/ausmanpa/gp/BCB-Modeling/ABC BHM R Code/pyData/tuning10.csv')    
+tuning15.to_csv('/home/ausmanpa/gp/BCB-Modeling/ABC BHM R Code/pyData/tuning15.csv')    
+tuning20.to_csv('/home/ausmanpa/gp/BCB-Modeling/ABC BHM R Code/pyData/tuning20.csv')    
+
+partData = pd.DataFrame(partData)
+partData.to_csv('/home/ausmanpa/gp/BCB-Modeling/ABC BHM R Code/pyData/partData.csv')
     
     
     
