@@ -42,7 +42,7 @@ def hamiltonian_sampling(indiv1Hist, indiv2Hist, sample, samplePrev, i):
     llhRatio   = currSample - prevSample # likelihood ratio
     return llhRatio
 
-def markov_chain(tuning, DV=None, numChainIter):
+def markov_chain(tuning, DV=None, numChainIter=1):
     """
     Runs a single instance of a Markov Chain for a given model.
 
@@ -179,7 +179,7 @@ def markov_chain(tuning, DV=None, numChainIter):
     return chain
 
 
-def abc_hierarchical_model(tuning, dv=None, numChainIter=100):
+def abc_hierarchical_model(tuning, dv=None, numChainIter=1):
     """
     Runs a set of Markov Chains for a given model.
 
