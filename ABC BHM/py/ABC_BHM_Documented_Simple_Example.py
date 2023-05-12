@@ -33,8 +33,9 @@ def hamiltonian_sampling(indiv1Hist, indiv2Hist, sample, samplePrev, i):
     """
     
     # compute the likelihood ratio between the previous sample of the parameter and the current sample 
-    currSample = sum(beta.logpdf([indiv1Hist[i-1],indiv2Hist[i-1]], sample*2, (1-sample))) # current likelihood value
-    prevSample = sum(beta.logpdf([indiv1Hist[i-1],indiv2Hist[i-1]], samplePrev*2, (1-samplePrev))) # previous likelihood value
+    # kappa = 2 (fixed; only estimating mu)
+    currSample = sum(beta.logpdf([indiv1Hist[i-1],indiv2Hist[i-1]], sample*2, (1-sample)*2)) # current likelihood value
+    prevSample = sum(beta.logpdf([indiv1Hist[i-1],indiv2Hist[i-1]], samplePrev*2, (1-samplePrev)*2)) # previous likelihood value
     llhRatio   = currSample - prevSample # likelihood ratio
     return llhRatio
 
@@ -71,10 +72,10 @@ def markov_chain(tuning, DV):
             
             # if the likelihood ratio is less than or equal to some randomly sampled value,
             # keep the newly sampled parameter value; otherwise, keep the previously sampled parameter value
-            if math.log(uniform.rvs(0,1,1)) <= r:
+            if math.log(uniform.rvs(0,1,1)) <= r: # check
                 pass
             else:
-                sample = samplePrev
+                sample = [samplePrev]
                 
         # sample parameters for individual participants
         # in this example the rate parameter is held constant
@@ -83,32 +84,36 @@ def markov_chain(tuning, DV):
             
         ###
         # integrate ACT-R here
+        # (probably) don't have to integrate behavioral measures! 
+        # just calculate the residual for each measure, then when alpha is checked against p, it has to pass checks
+        # for each of the behavioral measures to be kept
         ###
             
         #compute residual between model predictions and observed data
-        dist1 = np.sqrt(np.mean(DV[0:50] - indiv1[0]**2))
-        dist2 = np.sqrt(np.mean(DV[51:100] - indiv2[0]**2))
+        dist1 = np.sqrt(np.mean((DV[0:50] - indiv1[0])**2))
+        dist2 = np.sqrt(np.mean((DV[51:100] - indiv2[0])**2))
             
         #add residuals from all participants
         dist = dist1 + dist2
             
         # initialize distPost to 0
         if i==0:
-            distPost = 0
+            distPost = 0.01
             
         # compute likelihood ratio for ABC sampling
-        alpha = norm.logpdf(dist/tuning) - norm.logpdf(distPost/tuning)
+        #alpha = norm.logpdf(dist/tuning) - norm.logpdf(distPost/tuning)
+        alpha = math.log(norm.pdf(dist/tuning)) - math.log(norm.pdf(distPost/tuning))
         # sample a random value to test against
         p = math.log(uniform.rvs(0,1,1))
             
         if i==0:
-            sampleHist.append(sample)
+            sampleHist.append(sample[0])
             indiv1Hist.append(indiv1[0])
             indiv2Hist.append(indiv2[0])
             distPost = dist
         else:
             if p <= alpha: # if p is less than or equal to alpha, store newly sampled values
-                sampleHist.append(sample)
+                sampleHist.append(sample[0])
                 indiv1Hist.append(indiv1[0])
                 indiv2Hist.append(indiv2[0])
                 distPost = dist
@@ -167,13 +172,13 @@ tuning10 = abc_hierarchical_model(.1,dv)
 tuning15 = abc_hierarchical_model(.15,dv)   
 tuning20 = abc_hierarchical_model(.2,dv)
 
-tuning05.to_csv('/home/ausmanpa/gp/BCB-Modeling/ABC BHM R Code/pyData/tuning05.csv')    
-tuning10.to_csv('/home/ausmanpa/gp/BCB-Modeling/ABC BHM R Code/pyData/tuning10.csv')    
-tuning15.to_csv('/home/ausmanpa/gp/BCB-Modeling/ABC BHM R Code/pyData/tuning15.csv')    
-tuning20.to_csv('/home/ausmanpa/gp/BCB-Modeling/ABC BHM R Code/pyData/tuning20.csv')    
+tuning05.to_csv('/Users/pjr5/Desktop/BCB-Modeling-main/ABC BHM R Code/pyData/tuning05.csv')    
+tuning10.to_csv('/Users/pjr5/Desktop/BCB-Modeling-main/ABC BHM R Code/pyData/tuning10.csv')    
+tuning15.to_csv('/Users/pjr5/Desktop/BCB-Modeling-main/ABC BHM R Code/pyData/tuning15.csv')    
+tuning20.to_csv('/Users/pjr5/Desktop/BCB-Modeling-main/ABC BHM R Code/pyData/tuning20.csv')    
 
 partData = pd.DataFrame(partData)
-partData.to_csv('/home/ausmanpa/gp/BCB-Modeling/ABC BHM R Code/pyData/partData.csv')
+partData.to_csv('/Users/pjr5/Desktop/BCB-Modeling-main/ABC BHM R Code/pyData/partData.csv')
     
     
     
