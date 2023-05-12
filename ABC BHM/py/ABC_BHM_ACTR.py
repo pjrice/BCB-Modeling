@@ -1,6 +1,8 @@
-import actr
-import modelFuncs
+#import actr
+#import modelFuncs
 import math
+import subprocess
+import multiprocessing
 import numpy as np
 import pandas as pd
 from scipy.stats import beta
@@ -69,6 +71,11 @@ def markov_chain(tuning, DV=None, numChainIter=1):
     sampleHist = []
     indiv1Hist = []
     indiv2Hist = []
+    
+    # open ACT-R
+    subprocess.call([r'Z:\\gp\\BCB-Modeling\\ABC BHM\\py\\run-act-r.bat'])
+    import actr
+    import modelFuncs
     
     # load the device
     actr.load_act_r_code('Z:\\gp\\BCB-Modeling\\WM_ABCest\\model\\zeroBack-device.lisp')
@@ -176,6 +183,11 @@ def markov_chain(tuning, DV=None, numChainIter=1):
              "SampleMean":sampleHist,
              "Individual_1":indiv1Hist,
              "Individual_2":indiv2Hist}
+    
+    # close lisp terminal
+    # works as a standalone call, but causes python to hang; when called in script, causes python->actr connection to fail
+    #actr.call_command('quit-lisp-terminal')
+    
     return chain
 
 

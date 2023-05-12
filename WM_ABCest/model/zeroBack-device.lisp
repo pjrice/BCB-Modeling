@@ -533,10 +533,18 @@
 
 ;;; function to output the combined response info list to python
 ;;; added as an actr command here and then called with actr.call_command('print-resp')
-(defun print-resp ()
+(defun print-resp-old ()
 	(print (combine-lists *responses* *respTimes* *retrievedChunks*))
 )
+(defun print-resp ()
+	(combine-lists *responses* *respTimes* *retrievedChunks*)
+)
 (add-act-r-command "print-resp" 'print-resp)
+
+(defun quit-lisp-terminal ()
+	(quit)
+)
+(add-act-r-command "quit-lisp-terminal" 'quit-lisp-terminal)
 
 (defun call-clear-all ()
 	(clear-all)
