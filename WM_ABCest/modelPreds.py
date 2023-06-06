@@ -2,7 +2,8 @@ import os
 import csv
 import numpy as np
 
-os.chdir('/home/ausmanpa/actr7.x/tutorial/python')
+#os.chdir('/home/ausmanpa/actr7.x/tutorial/python')
+os.chdir('C:\\Users\\Patrick\\Desktop\\ACT-R\\tutorial\\python')
 import actr
 
 def create_stim_timing():
@@ -49,7 +50,8 @@ def compute_kp_acc(kpResp,correctResp):
 def getModelPreds(numRuns):
     
     # load the device
-    actr.load_act_r_code('/home/ausmanpa/gp/BCB-Modeling/WM_ABCest/model/zeroBack-device.lisp')
+    #actr.load_act_r_code('/home/ausmanpa/gp/BCB-Modeling/WM_ABCest/model/zeroBack-device.lisp')
+    actr.load_act_r_code('Z:\\gp\\BCB-Modeling\\WM_ABCest\\model\\zeroBack-device.lisp')
     
     # establish the "correct" chunk to retrieve on each trial
     correctCueChunks = np.array(['CUE0-0','CUE1-0','CUE2-0','CUE3-0','CUE4-0','CUE5-0','CUE6-0','CUE7-0'])
@@ -57,7 +59,8 @@ def getModelPreds(numRuns):
     
     # get the correct keypresses and trial types
     correctRespTTs = []
-    with open('/home/ausmanpa/gp/BCB-Modeling/WM_ABCest/model/zeroBack_correctResponses.csv',newline='') as csvfile:
+    #open('/home/ausmanpa/gp/BCB-Modeling/WM_ABCest/model/zeroBack_correctResponses.csv',newline='')
+    with open('Z:\\gp\\BCB-Modeling\\WM_ABCest\\model\\zeroBack_correctResponses.csv',newline='') as csvfile:
         reader = csv.reader(csvfile)
         for row in reader:
             correctRespTTs.append(row)
@@ -71,7 +74,8 @@ def getModelPreds(numRuns):
     # establish "participants" to test
     # only vary goal buffer spreading activation; set all other values to mean
     # of values estimated across participants
-    gaVals = np.random.normal(0.93,0.33,numRuns)
+    #gaVals = np.random.normal(0.93,0.33,numRuns)
+    gaVals = np.random.normal(0.4,0.01,1)
     ia = 0.69
     bll = 0.52
     lf = 2.49
@@ -82,7 +86,8 @@ def getModelPreds(numRuns):
     for ga in gaVals:
                 
         # load the zero-back ACT-R model
-        actr.load_act_r_model('/home/ausmanpa/gp/BCB-Modeling/WM_ABCest/model/zeroBack-model-main.lisp')
+        #actr.load_act_r_model('/home/ausmanpa/gp/BCB-Modeling/WM_ABCest/model/zeroBack-model-main.lisp')
+        actr.load_act_r_model('Z:\\gp\\BCB-Modeling\\WM_ABCest\\model\\zeroBack-model-main.lisp')
         
         # set parameters in process of being estimated
         actr.call_command('set-similarities', ['cue', 'stimulus', css])

@@ -1,5 +1,5 @@
-#import actr
-#import modelFuncs
+import actr
+import modelFuncs
 import math
 import subprocess
 import multiprocessing
@@ -59,11 +59,13 @@ def markov_chain(tuning, DV=None, numChainIter=1):
 
     """
     
-    indiv1Data = pd.read_csv('Z:\\gp\\BCB-Modeling\\WM_ABCest\\data\\modelPreds_part1.csv')
+    #indiv1Data = pd.read_csv('Z:\\gp\\BCB-Modeling\\WM_ABCest\\data\\modelPreds_part1.csv')
+    indiv1Data = pd.read_csv('Z:\\gp\\BCB-Modeling\\ABC BHM\\py\\pyData\\parameterRecovery\\rtAndAcc\\test2\\modelPreds_ga40.csv')
     # indiv1RT_real = np.mean(indiv1Data['rt'])
     # indiv1Acc_real = np.mean(indiv1Data['kpAcc'])
     
-    indiv2Data = pd.read_csv('Z:\\gp\\BCB-Modeling\\WM_ABCest\\data\\modelPreds_part2.csv')
+    #indiv2Data = pd.read_csv('Z:\\gp\\BCB-Modeling\\WM_ABCest\\data\\modelPreds_part2.csv')
+    indiv2Data = pd.read_csv('Z:\\gp\\BCB-Modeling\\ABC BHM\\py\\pyData\\parameterRecovery\\rtAndAcc\\test2\\modelPreds_ga93.csv')
     # indiv2RT_real = np.mean(indiv2Data['rt'])
     # indiv2Acc_real = np.mean(indiv2Data['kpAcc'])
     
@@ -73,9 +75,9 @@ def markov_chain(tuning, DV=None, numChainIter=1):
     indiv2Hist = []
     
     # open ACT-R
-    subprocess.call([r'Z:\\gp\\BCB-Modeling\\ABC BHM\\py\\run-act-r.bat'])
-    import actr
-    import modelFuncs
+    #subprocess.call([r'Z:\\gp\\BCB-Modeling\\ABC BHM\\py\\run-act-r.bat'])
+    #import actr
+    #import modelFuncs
     
     # load the device
     actr.load_act_r_code('Z:\\gp\\BCB-Modeling\\WM_ABCest\\model\\zeroBack-device.lisp')

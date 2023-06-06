@@ -1,0 +1,7 @@
+original test of parameter recovery
+
+:ga was the parameter that differed between two participants - ~0.93 and ~0.62
+
+very similar behavior, and ABC HBM demonstrated a lot of shrinkage
+
+however, diagnostics suggested that low :ga values would result in different behavior, and may be easier to differentiate - next test
