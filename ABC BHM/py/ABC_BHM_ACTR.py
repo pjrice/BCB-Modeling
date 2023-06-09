@@ -73,8 +73,10 @@ def markov_chain(tuning, DV=None, numChainIter=1):
     sampleHist = []
     indiv1Hist = []
     indiv2Hist = []
-    model_meanRTs = []
-    model_meanAccs = []
+    model_meanRTs_indiv1 = []
+    model_meanAccs_indiv1 = []
+    model_meanRTs_indiv2 = []
+    model_meanAccs_indiv2 = []
     
     # open ACT-R
     #subprocess.call([r'Z:\\gp\\BCB-Modeling\\ABC BHM\\py\\run-act-r.bat'])
@@ -124,8 +126,11 @@ def markov_chain(tuning, DV=None, numChainIter=1):
         paramDict = {':ga':indiv2[0], ':imaginal-activation':0.69, ':lf':2.49, ':bll': 0.52, 'css':-0.43}
         indiv2Dict = modelFuncs.run_model_with_params('Z:\\gp\\BCB-Modeling\\WM_ABCest\\model\\zeroBack-model-main.lisp',paramDict)
         
-        model_meanRT = np.mean(indiv1Dict['RTs'])
-        model_meanAcc = np.mean(indiv1Dict['keypressAcc'])
+        model_meanRT_indiv1 = np.mean(indiv1Dict['RTs'])
+        model_meanAcc_indiv1 = np.mean(indiv1Dict['keypressAcc'])
+        
+        model_meanRT_indiv2 = np.mean(indiv2Dict['RTs'])
+        model_meanAcc_indiv2 = np.mean(indiv2Dict['keypressAcc'])
         
         ###
         
@@ -164,8 +169,10 @@ def markov_chain(tuning, DV=None, numChainIter=1):
             sampleHist.append(sample[0])
             indiv1Hist.append(indiv1[0])
             indiv2Hist.append(indiv2[0])
-            model_meanRTs.append(model_meanRT)
-            model_meanAccs.append(model_meanAcc)
+            model_meanRTs_indiv1.append(model_meanRT_indiv1)
+            model_meanAccs_indiv1.append(model_meanAcc_indiv1)
+            model_meanRTs_indiv2.append(model_meanRT_indiv2)
+            model_meanAccs_indiv2.append(model_meanAcc_indiv2)
             distPost_RT = dist_RT
             distPost_Acc = dist_Acc
         else:                                        #  This would necessitate a greater number of chain iterations, correct?
@@ -173,22 +180,28 @@ def markov_chain(tuning, DV=None, numChainIter=1):
                 sampleHist.append(sample[0])
                 indiv1Hist.append(indiv1[0])
                 indiv2Hist.append(indiv2[0])
-                model_meanRTs.append(model_meanRT)
-                model_meanAccs.append(model_meanAcc)
+                model_meanRTs_indiv1.append(model_meanRT_indiv1)
+                model_meanAccs_indiv1.append(model_meanAcc_indiv1)
+                model_meanRTs_indiv2.append(model_meanRT_indiv2)
+                model_meanAccs_indiv2.append(model_meanAcc_indiv2)
                 distPost_RT = dist_RT
                 distPost_Acc = dist_Acc
             else: # otherwise store the previously sampled values again
                 sampleHist.append(sampleHist[i-1])
                 indiv1Hist.append(indiv1Hist[i-1])
                 indiv2Hist.append(indiv2Hist[i-1])
-                model_meanRTs.append(model_meanRTs[i-1])
-                model_meanAccs.append(model_meanAccs[i-1])
+                model_meanRTs_indiv1.append(model_meanRTs_indiv1[i-1])
+                model_meanAccs_indiv1.append(model_meanAccs_indiv1[i-1])
+                model_meanRTs_indiv2.append(model_meanRTs_indiv2[i-1])
+                model_meanAccs_indiv2.append(model_meanAccs_indiv2[i-1])
                     
     # store chain as dict
     chain = {"Sample":list(range(0,len(sampleHist))),
              "SampleMean":sampleHist,
-             "ModelMeanRT":model_meanRTs,
-             "ModelMeanAcc":model_meanAccs,
+             "ModelMeanRT_indiv1":model_meanRTs_indiv1,
+             "ModelMeanAcc_indiv1":model_meanAccs_indiv1,
+             "ModelMeanRT_indiv2":model_meanRTs_indiv2,
+             "ModelMeanAcc_indiv2":model_meanAccs_indiv2,
              "Individual_1":indiv1Hist,
              "Individual_2":indiv2Hist}
     
