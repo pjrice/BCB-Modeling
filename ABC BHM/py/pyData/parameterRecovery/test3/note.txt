@@ -1,0 +1,7 @@
+:ga differed between two participants - ~0.93 and ~0.40. Response times are significant different but accuracies are not
+
+Four total runs:
+1. RT and Acc, indiv_kappa=10, pop_kappa=2
+2. RT only, indiv_kappa=10, pop_kappa=2
+3. RT and Acc, indiv_kappa=250, pop_kappa=100
+4. RT only, indiv_kappa=250, pop_kappa=100

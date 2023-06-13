@@ -24,3 +24,17 @@ tuning15.to_csv('Z:\\gp\\BCB-Modeling\\ABC BHM\\py\\pyData\\parameterRecovery\\r
 # test 2
 tuning15 = abc_hierarchical_model(0.15,numChainIter=10000)
 tuning15.to_csv('Z:\\gp\\BCB-Modeling\\ABC BHM\\py\\pyData\\parameterRecovery\\rtAndAcc\\test2\\tuning15.csv') 
+
+
+# test 3
+parameters = {'tuning':0.15,
+              'indiv_kappa':10,
+              'pop_kappa':2}
+modelResults = abc_hierarchical_model(parameters,numChainIter=10)
+modelResults.to_csv('Z:\\gp\\BCB-Modeling\\ABC BHM\\py\\pyData\\parameterRecovery\\test3\\RTAcc_ik10_pk2.csv')
+
+parameters = {'tuning':0.15,
+              'indiv_kappa':250,
+              'pop_kappa':100}
+tuning15 = abc_hierarchical_model(parameters,numChainIter=10000)
+modelResults.to_csv('Z:\\gp\\BCB-Modeling\\ABC BHM\\py\\pyData\\parameterRecovery\\test3\\RTAcc_ik250_pk100.csv')

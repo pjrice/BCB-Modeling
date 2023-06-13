@@ -15,10 +15,7 @@ def sample_prior():
     parameters = beta.rvs(1,1,size=1)
     return parameters
 
-def hammy_sammy(indiv1Hist, indiv2Hist, sample, samplePrev, i):
-    return hamiltonian_sampling(indiv1Hist, indiv2Hist, sample, samplePrev, i)
-
-def hamiltonian_sampling(indiv1Hist, indiv2Hist, sample, samplePrev, i):
+def hamiltonian_sampling(indiv1Hist, indiv2Hist, sample, samplePrev, popKappa, i):
     """
     Computes the likelihood ratio for the population parameter.
 
@@ -28,6 +25,7 @@ def hamiltonian_sampling(indiv1Hist, indiv2Hist, sample, samplePrev, i):
     indiv2Hist : A list of posterior samples representing a second individual.
     sample     : The current population mean parameter.
     samplePrev : The previously accepted population mean parameter.
+    popKappa   : The current population kappa parameter.
     i          : Index of the iteration of the Markov Chain.
 
     Returns
@@ -37,14 +35,12 @@ def hamiltonian_sampling(indiv1Hist, indiv2Hist, sample, samplePrev, i):
     """
     
     # compute the likelihood ratio between the previous sample of the parameter and the current sample 
-    # kappa = 2 (fixed; only estimating mu)
-    kappa = 2
-    currSample = sum(beta.logpdf([indiv1Hist[i-1],indiv2Hist[i-1]], sample*kappa, (1-sample)*kappa)) # current likelihood value
-    prevSample = sum(beta.logpdf([indiv1Hist[i-1],indiv2Hist[i-1]], samplePrev*kappa, (1-samplePrev)*kappa)) # previous likelihood value
+    currSample = sum(beta.logpdf([indiv1Hist[i-1],indiv2Hist[i-1]], sample*popKappa, (1-sample)*popKappa)) # current likelihood value
+    prevSample = sum(beta.logpdf([indiv1Hist[i-1],indiv2Hist[i-1]], samplePrev*popKappa, (1-samplePrev)*popKappa)) # previous likelihood value
     llhRatio   = currSample - prevSample # likelihood ratio
     return llhRatio
 
-def markov_chain(tuning, DV=None, numChainIter=1):
+def markov_chain(params, DV=None, numChainIter=1):
     """
     Runs a single instance of a Markov Chain for a given model.
 
@@ -59,13 +55,19 @@ def markov_chain(tuning, DV=None, numChainIter=1):
 
     """
     
+    # get model parameter values
+    tuning = params['tuning']
+    indivKappa = params['indiv_kappa']
+    popKappa = params['pop_kappa']
+    
+    
     #indiv1Data = pd.read_csv('Z:\\gp\\BCB-Modeling\\WM_ABCest\\data\\modelPreds_part1.csv')
-    indiv1Data = pd.read_csv('Z:\\gp\\BCB-Modeling\\ABC BHM\\py\\pyData\\parameterRecovery\\rtAndAcc\\test2\\modelPreds_ga40.csv')
+    indiv1Data = pd.read_csv('Z:\\gp\\BCB-Modeling\\ABC BHM\\py\\pyData\\parameterRecovery\\test3\\modelPreds_ga40.csv')
     # indiv1RT_real = np.mean(indiv1Data['rt'])
     # indiv1Acc_real = np.mean(indiv1Data['kpAcc'])
     
     #indiv2Data = pd.read_csv('Z:\\gp\\BCB-Modeling\\WM_ABCest\\data\\modelPreds_part2.csv')
-    indiv2Data = pd.read_csv('Z:\\gp\\BCB-Modeling\\ABC BHM\\py\\pyData\\parameterRecovery\\rtAndAcc\\test2\\modelPreds_ga93.csv')
+    indiv2Data = pd.read_csv('Z:\\gp\\BCB-Modeling\\ABC BHM\\py\\pyData\\parameterRecovery\\test3\\modelPreds_ga93.csv')
     # indiv2RT_real = np.mean(indiv2Data['rt'])
     # indiv2Acc_real = np.mean(indiv2Data['kpAcc'])
     
@@ -97,7 +99,7 @@ def markov_chain(tuning, DV=None, numChainIter=1):
             samplePrev = sampleHist[i-1]
             
             # get the likelihood ratio between the current and previous samples
-            r = hammy_sammy(indiv1Hist,indiv2Hist,sample,samplePrev,i)
+            r = hamiltonian_sampling(indiv1Hist,indiv2Hist,sample,samplePrev,popKappa,i)
             
             # if the likelihood ratio is less than or equal to some randomly sampled value,
             # keep the newly sampled parameter value; otherwise, keep the previously sampled parameter value
@@ -108,9 +110,8 @@ def markov_chain(tuning, DV=None, numChainIter=1):
                 
         # sample parameters for individual participants
         # in this example the rate parameter is held constant
-        rate = 10
-        indiv1 = beta.rvs(sample[0]*rate, (1-sample[0])*rate, size=1)
-        indiv2 = beta.rvs(sample[0]*rate, (1-sample[0])*rate, size=1)
+        indiv1 = beta.rvs(sample[0]*indivKappa, (1-sample[0])*indivKappa, size=1)
+        indiv2 = beta.rvs(sample[0]*indivKappa, (1-sample[0])*indivKappa, size=1)
             
         ###
         # integrate ACT-R here
@@ -212,7 +213,7 @@ def markov_chain(tuning, DV=None, numChainIter=1):
     return chain
 
 
-def abc_hierarchical_model(tuning, dv=None, numChainIter=1):
+def abc_hierarchical_model(params, dv=None, numChainIter=1):
     """
     Runs a set of Markov Chains for a given model.
 
@@ -226,9 +227,9 @@ def abc_hierarchical_model(tuning, dv=None, numChainIter=1):
     data : The results of the ABC hierarchical sampling model.
 
     """    
-    chain1 = pd.DataFrame(markov_chain(tuning,dv,numChainIter))
-    chain2 = pd.DataFrame(markov_chain(tuning,dv,numChainIter))
-    chain3 = pd.DataFrame(markov_chain(tuning,dv,numChainIter))
+    chain1 = pd.DataFrame(markov_chain(params,dv,numChainIter))
+    chain2 = pd.DataFrame(markov_chain(params,dv,numChainIter))
+    chain3 = pd.DataFrame(markov_chain(params,dv,numChainIter))
     
     chain1['Chain'] = 1
     chain2['Chain'] = 2
@@ -239,31 +240,7 @@ def abc_hierarchical_model(tuning, dv=None, numChainIter=1):
 
 
 
-# # generate data
-# part = [1]*50 + [2]*50
-# dv = [.3]*50 + [.7]*50
-# dv = list(truncnorm.rvs(a=0, b=1, loc=0.3, scale=0.05, size=50)) + list(truncnorm.rvs(a=0, b=1, loc=0.7, scale=0.05, size=50))
 
-# partData = {"partID":part,
-#             "dvSteady":[.3]*50 + [.7]*50,
-#             "dv":dv
-#     }
-
-# tuning05 = abc_hierarchical_model(.05,dv)
-# tuning10 = abc_hierarchical_model(.1,dv)
-# tuning15 = abc_hierarchical_model(.15,dv)   
-# tuning20 = abc_hierarchical_model(.2,dv)
-
-# tuning05.to_csv('/Users/pjr5/Desktop/BCB-Modeling-main/ABC BHM R Code/pyData/tuning05.csv')    
-# tuning10.to_csv('/Users/pjr5/Desktop/BCB-Modeling-main/ABC BHM R Code/pyData/tuning10.csv')    
-# tuning15.to_csv('/Users/pjr5/Desktop/BCB-Modeling-main/ABC BHM R Code/pyData/tuning15.csv')    
-# tuning20.to_csv('/Users/pjr5/Desktop/BCB-Modeling-main/ABC BHM R Code/pyData/tuning20.csv')    
-
-# partData = pd.DataFrame(partData)
-# partData.to_csv('/Users/pjr5/Desktop/BCB-Modeling-main/ABC BHM R Code/pyData/partData.csv')
-    
-    
-    
     
     
     
