@@ -266,12 +266,12 @@ def markov_chain_RTonly(params, DV=None, numChainIter=1):
     
     
     #indiv1Data = pd.read_csv('Z:\\gp\\BCB-Modeling\\WM_ABCest\\data\\modelPreds_part1.csv')
-    indiv1Data = pd.read_csv('Z:\\gp\\BCB-Modeling\\ABC BHM\\py\\pyData\\parameterRecovery\\test3\\modelPreds_ga40.csv')
+    indiv1Data = pd.read_csv('Z:\\gp\\BCB-Modeling\\ABC BHM\\py\\pyData\\parameterRecovery\\test4\\modelPreds_ga01.csv')
     # indiv1RT_real = np.mean(indiv1Data['rt'])
     # indiv1Acc_real = np.mean(indiv1Data['kpAcc'])
     
     #indiv2Data = pd.read_csv('Z:\\gp\\BCB-Modeling\\WM_ABCest\\data\\modelPreds_part2.csv')
-    indiv2Data = pd.read_csv('Z:\\gp\\BCB-Modeling\\ABC BHM\\py\\pyData\\parameterRecovery\\test3\\modelPreds_ga93.csv')
+    indiv2Data = pd.read_csv('Z:\\gp\\BCB-Modeling\\ABC BHM\\py\\pyData\\parameterRecovery\\test4\\modelPreds_ga25.csv')
     # indiv2RT_real = np.mean(indiv2Data['rt'])
     # indiv2Acc_real = np.mean(indiv2Data['kpAcc'])
     

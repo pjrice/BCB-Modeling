@@ -50,3 +50,29 @@ parameters = {'tuning':0.15,
               'pop_kappa':100}
 modelResults = abc_hierarchical_model_RTonly(parameters,numChainIter=10000)
 modelResults.to_csv('Z:\\gp\\BCB-Modeling\\ABC BHM\\py\\pyData\\parameterRecovery\\test3\\RTonly_ik250_pk100.csv')
+
+
+# test 4
+parameters = {'tuning':0.15,
+              'indiv_kappa':10,
+              'pop_kappa':2}
+modelResults = abc_hierarchical_model(parameters,numChainIter=10000)
+modelResults.to_csv('Z:\\gp\\BCB-Modeling\\ABC BHM\\py\\pyData\\parameterRecovery\\test4\\RTAcc_ik10_pk2.csv')
+
+parameters = {'tuning':0.15,
+              'indiv_kappa':250,
+              'pop_kappa':100}
+modelResults = abc_hierarchical_model(parameters,numChainIter=10000)
+modelResults.to_csv('Z:\\gp\\BCB-Modeling\\ABC BHM\\py\\pyData\\parameterRecovery\\test4\\RTAcc_ik250_pk100.csv')
+
+parameters = {'tuning':0.15,
+              'indiv_kappa':10,
+              'pop_kappa':2}
+modelResults = abc_hierarchical_model_RTonly(parameters,numChainIter=10000)
+modelResults.to_csv('Z:\\gp\\BCB-Modeling\\ABC BHM\\py\\pyData\\parameterRecovery\\test4\\RTOnly_ik10_pk2.csv')
+
+parameters = {'tuning':0.15,
+              'indiv_kappa':250,
+              'pop_kappa':100}
+modelResults = abc_hierarchical_model_RTonly(parameters,numChainIter=10000)
+modelResults.to_csv('Z:\\gp\\BCB-Modeling\\ABC BHM\\py\\pyData\\parameterRecovery\\test4\\RTOnly_ik250_pk100.csv')

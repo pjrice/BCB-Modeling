@@ -75,7 +75,8 @@ def getModelPreds(numRuns):
     # only vary goal buffer spreading activation; set all other values to mean
     # of values estimated across participants
     #gaVals = np.random.normal(0.93,0.33,numRuns)
-    gaVals = np.random.normal(0.4,0.01,1)
+    #gaVals = np.random.normal(0.4,0.01,1)
+    gaVals = np.array([0.01])
     ia = 0.69
     bll = 0.52
     lf = 2.49
